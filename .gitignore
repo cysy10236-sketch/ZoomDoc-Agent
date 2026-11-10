@@ -2,6 +2,7 @@ references/
 .venv/
 runs/
 eval/**/runs/
+eval/**/pdfs/
 .env
 __pycache__/
 .pytest_cache/

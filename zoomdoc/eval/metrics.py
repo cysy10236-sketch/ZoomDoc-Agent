@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
 import random
 import re
 import statistics
@@ -99,6 +100,45 @@ def paired_bootstrap_ratio_ci(
     }
 
 
+def mcnemar_exact_p_value(b: int, c: int) -> float:
+    """Calculate exact two-sided p-value for McNemar test using Binomial distribution."""
+    n = b + c
+    if n == 0:
+        return 1.0
+    k = min(b, c)
+    # Two-sided p-value: 2 * sum_{i=0}^k C(n, i) * 0.5^n
+    prob = sum(math.comb(n, i) for i in range(k + 1)) * (0.5**n)
+    return round(min(1.0, 2.0 * prob), 4)
+
+
+def compute_mcnemar(
+    records_a: list[dict[str, Any]], records_b: list[dict[str, Any]]
+) -> tuple[int, int, float]:
+    """Paired McNemar test on common case_ids: a is tested system, b is baseline system.
+
+    Returns (b_better, c_worse, p_value) where:
+    - b_better: count where a is correct and b is incorrect
+    - c_worse: count where a is incorrect and b is correct
+    """
+    dict_b = {r["case_id"]: r.get("is_correct", False) for r in records_b}
+    b_better = 0
+    c_worse = 0
+
+    for r_a in records_a:
+        cid = r_a.get("case_id")
+        if cid not in dict_b:
+            continue
+        corr_a = bool(r_a.get("is_correct", False))
+        corr_b = bool(dict_b[cid])
+        if corr_a and not corr_b:
+            b_better += 1
+        elif not corr_a and corr_b:
+            c_worse += 1
+
+    p_val = mcnemar_exact_p_value(b_better, c_worse)
+    return (b_better, c_worse, p_val)
+
+
 def compute_ngram_overlap(
     candidate_texts: list[str],
     reference_corpus: str,
@@ -156,6 +196,17 @@ def compute_ngram_overlap(
         "char_ngram_overlap_rate": char_overlap,
         "leaked_items": exact_matches,
     }
+
+
+def audit_prompt_contamination(
+    gold_answers: list[str],
+    prompts_path: str = "zoomdoc/prompts.py",
+    n: int = 4,
+) -> dict[str, Any]:
+    """Audit prompt contamination by checking n-gram and exact match overlap between gold answers and prompt corpus."""
+    p_path = Path(prompts_path)
+    prompts_corpus = p_path.read_text(encoding="utf-8") if p_path.is_file() else ""
+    return compute_ngram_overlap(gold_answers, prompts_corpus, n=n)
 
 
 def evaluate_m5_trigger(

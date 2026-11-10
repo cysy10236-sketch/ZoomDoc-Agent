@@ -91,7 +91,14 @@ def run_case_for_group(
             for nr in state.nav_reports:
                 all_nav_pages.extend(nr.candidate_pages)
             candidate_pages = sorted(list(set(all_nav_pages)))
-            selected_pages = state.selected_pages
+            selected_pages = list(
+                dict.fromkeys(
+                    state.all_selected_pages
+                    + state.selected_pages
+                    + [p for e in state.evidence for p in e.reference_pages]
+                    + result.reference_pages
+                )
+            )
         elif group == "M3":
             m3_cfg = cfg.model_copy(
                 update={
@@ -112,9 +119,14 @@ def run_case_for_group(
             for nr in state.nav_reports:
                 all_nav_pages.extend(nr.candidate_pages)
             candidate_pages = sorted(list(set(all_nav_pages)))
-            selected_pages = state.selected_pages
-            if state.evidence:
-                zoom_count = sum(e.zoom_count for e in state.evidence)
+            selected_pages = list(
+                dict.fromkeys(
+                    state.all_selected_pages
+                    + state.selected_pages
+                    + [p for e in state.evidence for p in e.reference_pages]
+                    + result.reference_pages
+                )
+            )
         else:
             raise ValueError(f"Unknown evaluation group: {group}")
 
@@ -124,12 +136,13 @@ def run_case_for_group(
         nav_rounds = result.nav_rounds
         seek_rounds = result.seek_rounds
         inspect_rounds = result.inspect_rounds
+        zoom_count = result.zoom_count
         render_latency_ms = result.render_latency_ms
         tree_latency_ms = result.tree_latency_ms
         total_wall_ms = result.total_wall_ms
         usage_dict = result.usage.model_dump()
 
-    except (ZoomDocError, APIError, Exception) as exc:
+    except (ZoomDocError, APIError) as exc:
         error_msg = f"{type(exc).__name__}: {str(exc)}"
 
     is_correct = (

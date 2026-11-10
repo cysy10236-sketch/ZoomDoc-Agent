@@ -14,8 +14,11 @@ from tests.fake_vlm import FakeVLM
 from zoomdoc.config import Settings
 from zoomdoc.eval.baselines import run_sliding_grid_baseline
 from zoomdoc.eval.metrics import (
+    audit_prompt_contamination,
+    compute_mcnemar,
     compute_ngram_overlap,
     evaluate_m5_trigger,
+    mcnemar_exact_p_value,
     paired_bootstrap_ratio_ci,
 )
 from zoomdoc.graph.supervisor import run_m3
@@ -142,6 +145,7 @@ def test_m4_t2_sliding_grid_baselines_b0_and_b1(tmp_path: Path) -> None:
     assert res_b0.answer == "ZD-3333-TR"
     assert res_b0.seek_rounds == 3
     assert res_b0.inspect_rounds == 1
+    assert res_b0.zoom_count == 0
     assert sel_b0 == [33]
     assert len(res_b0.cited_regions) == 1
 
@@ -183,6 +187,7 @@ def test_m4_t2_sliding_grid_baselines_b0_and_b1(tmp_path: Path) -> None:
     assert res_b1.answer == "ZD-3333-TR"
     assert res_b1.seek_rounds == 3
     assert res_b1.inspect_rounds == 1
+    assert res_b1.zoom_count == 1
     assert len(res_b1.cited_regions) >= 1
 
 
@@ -205,6 +210,18 @@ def test_m4_t3_paired_bootstrap_ratio_ci_and_h1_verdict() -> None:
 
     with pytest.raises(ValueError, match="Sum of denominator"):
         paired_bootstrap_ratio_ci([1.0, 2.0], [0.0, 0.0])
+
+    # McNemar tests
+    assert mcnemar_exact_p_value(0, 0) == 1.0
+    assert mcnemar_exact_p_value(4, 0) == 0.125
+    assert mcnemar_exact_p_value(8, 0) == 0.0078
+
+    recs_a = [{"case_id": "c1", "is_correct": True}, {"case_id": "c2", "is_correct": True}]
+    recs_b = [{"case_id": "c1", "is_correct": False}, {"case_id": "c2", "is_correct": True}]
+    b_better, c_worse, p_val = compute_mcnemar(recs_a, recs_b)
+    assert b_better == 1
+    assert c_worse == 0
+    assert p_val == 1.0
 
 
 def test_m4_t4_contamination_audit_zero_leakage(tmp_path: Path) -> None:
@@ -232,6 +249,12 @@ def test_m4_t4_contamination_audit_zero_leakage(tmp_path: Path) -> None:
     assert audit["exact_match_count"] == 0
     assert audit["exact_match_rate"] == 0.0
     assert audit["leaked_items"] == []
+
+    # 直接测试高阶辅助接口 audit_prompt_contamination
+    audit_helper = audit_prompt_contamination(gold_answers, prompts_path="zoomdoc/prompts.py", n=4)
+    assert audit_helper["exact_match_count"] == 0
+    assert audit_helper["exact_match_rate"] == 0.0
+    assert audit_helper["leaked_items"] == []
 
 
 def test_m4_t5_m5_redis_trigger_gate_logic() -> None:
@@ -420,6 +443,8 @@ def test_m4_t6_end_to_end_eval_and_report_m4_pipeline(tmp_path: Path) -> None:
     assert "## M5_REDIS_TRIGGER:" in report_text
     assert "| B0 (SlidingGrid-FullRes) |" in report_text
     assert "| M3-Full (ZoomDoc-M3) |" in report_text
+    assert "M3 vs B1" in report_text
+    assert "McNemar" in report_text
 
     # Bad cases jsonl should exist
     assert (eval_dir / "bad_cases.jsonl").is_file()

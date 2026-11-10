@@ -7,9 +7,12 @@ from pathlib import Path
 from typing import Any
 
 from zoomdoc.eval.metrics import (
+    audit_prompt_contamination,
+    compute_mcnemar,
     compute_ngram_overlap,
     compute_recall_funnel,
     evaluate_m5_trigger,
+    mcnemar_exact_p_value,
     paired_bootstrap_ratio_ci,
     percentile,
     wilson_score_interval,
@@ -123,21 +126,23 @@ def generate_report_m4(
     # 1. H1 Paired Bootstrap Ratio CI (M3 vs B0)
     # Match cases by case_id
     dict_b0 = {r["case_id"]: r for r in b0_recs}
+    dict_b1 = {r["case_id"]: r for r in b1_recs}
+    dict_b2 = {r["case_id"]: r for r in b2_recs}
     dict_m3 = {r["case_id"]: r for r in m3_recs}
-    common_ids_b0 = [cid for cid in dict_m3 if cid in dict_b0]
 
-    num_m3: list[float] = []
+    common_ids_b0 = [cid for cid in dict_m3 if cid in dict_b0]
+    num_m3_b0: list[float] = []
     den_b0: list[float] = []
     for cid in common_ids_b0:
         u_m3 = dict_m3[cid].get("usage", {}) or {}
         u_b0 = dict_b0[cid].get("usage", {}) or {}
         p_m3 = float(u_m3.get("prompt_tokens") or 0.0)
         p_b0 = float(u_b0.get("prompt_tokens") or 0.0)
-        num_m3.append(p_m3)
+        num_m3_b0.append(p_m3)
         den_b0.append(p_b0)
 
     if den_b0 and sum(den_b0) > 0:
-        boot_m3_b0 = paired_bootstrap_ratio_ci(num_m3, den_b0, n_boot=2000, seed=42)
+        boot_m3_b0 = paired_bootstrap_ratio_ci(num_m3_b0, den_b0, n_boot=2000, seed=42)
     else:
         boot_m3_b0 = {
             "ratio": 1.0,
@@ -147,6 +152,35 @@ def generate_report_m4(
             "savings_ci_low": 0.0,
             "savings_ci_high": 0.0,
         }
+
+    # Paired Bootstrap Ratio CI (M3 vs B1: Tree Routing vs Sliding Window Thumbnails)
+    common_ids_b1 = [cid for cid in dict_m3 if cid in dict_b1]
+    num_m3_b1: list[float] = []
+    den_b1: list[float] = []
+    for cid in common_ids_b1:
+        u_m3 = dict_m3[cid].get("usage", {}) or {}
+        u_b1 = dict_b1[cid].get("usage", {}) or {}
+        p_m3 = float(u_m3.get("prompt_tokens") or 0.0)
+        p_b1 = float(u_b1.get("prompt_tokens") or 0.0)
+        num_m3_b1.append(p_m3)
+        den_b1.append(p_b1)
+
+    if den_b1 and sum(den_b1) > 0:
+        boot_m3_b1 = paired_bootstrap_ratio_ci(num_m3_b1, den_b1, n_boot=2000, seed=42)
+    else:
+        boot_m3_b1 = {
+            "ratio": 1.0,
+            "ratio_ci_low": 1.0,
+            "ratio_ci_high": 1.0,
+            "savings": 0.0,
+            "savings_ci_low": 0.0,
+            "savings_ci_high": 0.0,
+        }
+
+    # Paired McNemar exact tests on accuracy: M3 vs B0, M3 vs B1, M3 vs B2
+    b_b0, c_b0, p_mcnemar_m3_b0 = compute_mcnemar(m3_recs, b0_recs)
+    b_b1, c_b1, p_mcnemar_m3_b1 = compute_mcnemar(m3_recs, b1_recs)
+    b_b2, c_b2, p_mcnemar_m3_b2 = compute_mcnemar(m3_recs, b2_recs)
 
     # H1 Verdict Decision Rule from §13.4
     point_ratio = boot_m3_b0["ratio"]
@@ -184,9 +218,7 @@ def generate_report_m4(
                 if item.get("gold"):
                     gold_answers.append(item["gold"])
 
-    p_file = Path(prompts_file)
-    prompts_corpus = p_file.read_text(encoding="utf-8") if p_file.is_file() else ""
-    audit_res = compute_ngram_overlap(gold_answers, prompts_corpus, n=4)
+    audit_res = audit_prompt_contamination(gold_answers, prompts_path=prompts_file, n=4)
 
     # 4. Bad Cases Export
     bad_cases_path = o_dir / "bad_cases.jsonl"
@@ -221,11 +253,21 @@ def generate_report_m4(
         f"| 渲染耗时占比 $\\rho_{{render}}$ | {stats_b0['mean_render_share']*100:.1f}% | {stats_b1['mean_render_share']*100:.1f}% | {stats_b2['mean_render_share']*100:.1f}% | {stats_m3['mean_render_share']*100:.1f}% |",
         f"| 异常运行数 (Errors) | {stats_b0['errors']} | {stats_b1['errors']} | {stats_b2['errors']} | {stats_m3['errors']} |",
         "",
-        "### 2. H1 Token 节省率 Bootstrap 统计检验 (M3 vs B0)",
+        "### 2. Token 节省率 Bootstrap 统计检验与配对显著性检验",
         "",
+        "#### 2.1 H1 假说检验：树索引两级路由 vs 全量高分辨率滑窗 (M3 vs B0)",
         f"- **点估计消耗比 $\\hat{{R}}$ (M3 / B0)**: `{boot_m3_b0['ratio']:.4f}` (95% CI: `[{boot_m3_b0['ratio_ci_low']:.4f}, {boot_m3_b0['ratio_ci_high']:.4f}]`)",
         f"- **总体 Token 节省率 $\\hat{{S}}$ (1 - R)**: `{boot_m3_b0['savings']*100:.2f}%` (95% CI: `[{boot_m3_b0['savings_ci_low']*100:.2f}%, {boot_m3_b0['savings_ci_high']*100:.2f}%]`)",
         f"- **Bootstrap 重采样次数**: $B = 2000$ (固定种子 `seed=42`)",
+        "",
+        "#### 2.2 树索引独立增益检验：两级路由 vs 缩略图滑窗 (M3 vs B1)",
+        f"- **点估计消耗比 $\\hat{{R}}$ (M3 / B1)**: `{boot_m3_b1['ratio']:.4f}` (95% CI: `[{boot_m3_b1['ratio_ci_low']:.4f}, {boot_m3_b1['ratio_ci_high']:.4f}]`)",
+        f"- **相对 B1 节省率 $\\hat{{S}}$ (1 - R)**: `{boot_m3_b1['savings']*100:.2f}%` (95% CI: `[{boot_m3_b1['savings_ci_low']*100:.2f}%, {boot_m3_b1['savings_ci_high']*100:.2f}%]`)",
+        "",
+        "#### 2.3 准确率配对显著性检验 (McNemar's Exact Test)",
+        f"- **M3 vs B0 (Full-Res 滑窗基线)**: M3胜={b_b0}, B0胜={c_b0}, 准确率差值 = `{(stats_m3['acc'] - stats_b0['acc'])*100:+.1f}%`, **McNemar p = {p_mcnemar_m3_b0:.4f}**",
+        f"- **M3 vs B1 (缩略图滑窗基线)**: M3胜={b_b1}, B1胜={c_b1}, 准确率差值 = `{(stats_m3['acc'] - stats_b1['acc'])*100:+.1f}%`, **McNemar p = {p_mcnemar_m3_b1:.4f}**",
+        f"- **M3 vs B2 (无缩放树检索消融)**: M3胜={b_b2}, B2胜={c_b2}, 准确率差值 = `{(stats_m3['acc'] - stats_b2['acc'])*100:+.1f}%`, **McNemar p = {p_mcnemar_m3_b2:.4f}**",
         "",
         "### 3. Milestone 5 Redis 缓存触发门禁分析",
         "",

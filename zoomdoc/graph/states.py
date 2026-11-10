@@ -184,6 +184,7 @@ class SupervisorState(BaseModel):
     history: Annotated[list[StepRecord], operator.add] = Field(default_factory=list)
     render_latency_ms: Annotated[float, operator.add] = 0.0
     tree_latency_ms: Annotated[float, operator.add] = 0.0
+    all_selected_pages: Annotated[list[int], operator.add] = Field(default_factory=list)
 
 
 class NavigatorSubState(BaseModel):

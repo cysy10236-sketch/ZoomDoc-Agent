@@ -190,6 +190,7 @@ def run_sliding_grid_baseline(
         nav_rounds=0,
         selected_node_ids=[],
         total_pages=total_pages,
+        zoom_count=report.zoom_count,
         render_latency_ms=round(render_latency_ms, 2),
         tree_latency_ms=0.0,
         total_wall_ms=wall_ms,

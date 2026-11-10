@@ -240,6 +240,7 @@ class FinalResultM3(FinalResultM2):
     nav_rounds: int = 0
     selected_node_ids: list[str] = Field(default_factory=list)
     total_pages: int = 0
+    zoom_count: int = 0
     render_latency_ms: float = 0.0
     tree_latency_ms: float = 0.0
     total_wall_ms: float = 0.0

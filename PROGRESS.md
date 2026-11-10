@@ -363,3 +363,42 @@
    - 针对测试集金标实现字符级与 4-gram 重叠审计，实测与 `prompts.py` 重叠率为 **0.0%**，严格排除了 M1 历史调试字符串 `ZD-7319-QX`。
 5. **零回归质量守恒**：
    - M1/M2/M2.5/M3 已有的全部 51 项测试 **100% 保持通过**，新增 6 项 M4 测试一次性全绿。
+
+---
+
+## Milestone 4 代码审查整改与加固报告 (Code Review Remediation)
+
+针对架构审查官提出的 6 项整改建议（P1/P2/P3），施工队已逐项实施严格物理加固并通过全量验证：
+
+1. **[P1] 滑窗网格基准与状态机 `zoom_count` 物理贯通**：
+   - 在 `zoomdoc/schemas.py` 中向 `FinalResultM3` 显式扩展 `zoom_count: int = 0`；
+   - 在 `zoomdoc/eval/baselines.py` 中将 B1 滑窗基准的 `report.zoom_count` 赋值给 `FinalResultM3.zoom_count`，杜绝 B1 放大指标丢弃；
+   - 在 `zoomdoc/graph/supervisor.py` 中在 `synthesizer_text_node` 与 `finalize_node` 完成 `zoom_count = sum(e.zoom_count for e in state.evidence)` 物理透传；
+   - 在 `scripts/eval_m4.py` 中自 `result.zoom_count` 读取，修复报告中 B1 zoom_rate 漏记缺陷；并在 `tests/test_milestone4.py` 中增加 `assert res_b0.zoom_count == 0` 与 `assert res_b1.zoom_count == 1` 物理断言。
+
+2. **[P1] 多轮树回溯 Seeker 漏斗累计召回修复**：
+   - 在 `zoomdoc/graph/states.py` 向 `SupervisorState` 新增 `all_selected_pages: Annotated[list[int], operator.add] = Field(default_factory=list)` 物理累加器；
+   - 在 `zoomdoc/graph/supervisor.py` 中由 `seeker_node` 产出 `"all_selected_pages": selected_pages`，实现 LangGraph 原生多轮并集累加；
+   - 在 `scripts/eval_m4.py` 中以全生命周期并集 $\bigcup \text{selected\_pages}$ 计算 Seeker 漏斗召回，彻底杜绝回溯跨轮丢失前轮选页。
+
+3. **[P2] 移除宽泛异常捕获，对齐准则第 11 条与 §14 铁律**：
+   - 彻底移除 `scripts/eval_m4.py` 中的 `except Exception` 宽泛捕获，严格收敛为 `except (ZoomDocError, APIError):`，绝不掩盖语法错误、类型断言或逻辑缺陷。
+
+4. **[P2] 物理 PDF 注入真实跨页表格说明与回溯陷阱提示**：
+   - 扩展 `scripts/make_eval_m4.py` 的 `build_long_doc`，支持 `cross_page_intros` 与 `trap_notes`；
+   - 对 4 份长文档真实渲染物理文字横幅（如 Doc 1 P13 的重分类转移通告与 P61 的跨页接续报表说明），使回溯与跨页推理建立在不可篡改的物理文字与排版事实之上。
+
+5. **[P2] `report_m4.py` 补充 M3 vs B1 独立消融 Bootstrap CI 与 McNemar 配对检验**：
+   - 补充计算两级树路由对滑窗缩略图的独立节约比值 Bootstrap CI（重采样 $B=2000$）；
+   - 在 `zoomdoc/eval/metrics.py` 中实现标准 `mcnemar_exact_p_value` 与 `compute_mcnemar`，并在报告中完整输出 M3 vs B0、M3 vs B1、M3 vs B2 的 McNemar 双侧精确检验 $p$ 值与胜负统计。
+
+6. **[P3] 统一导出 `audit_prompt_contamination` 辅助函数**：
+   - 在 `zoomdoc/eval/metrics.py` 实现封装函数并在 `zoomdoc/eval/__init__.py` 导出，强化测试覆盖与模块内聚。
+
+### 最终全量回归验证：
+- 语法检查：`python -m compileall -q zoomdoc scripts tests`（退出码 **0**）
+- 全量测试：`python -m pytest -q`（全部 **57 项通过**，用时 **47.54s**）
+```
+57 passed in 47.54s
+```
+

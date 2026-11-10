@@ -64,6 +64,8 @@ def build_long_doc(
     toc_specs: list[list[Any]],
     gold_targets: dict[int, dict[str, Any]],
     distractor_pages: set[int],
+    cross_page_intros: dict[int, str] | None = None,
+    trap_notes: dict[int, str] | None = None,
     is_multicolumn: bool = False,
 ) -> None:
     """Generate multi-page synthetic document with TOC bookmarks, body text, and target tables."""
@@ -90,6 +92,22 @@ def build_long_doc(
             fontsize=8,
             color=(0.4, 0.4, 0.4),
         )
+
+        # Cross-page continuation banner or backtrack trap / reclassification notice
+        if cross_page_intros and page_num in cross_page_intros:
+            page.insert_text(
+                fitz.Point(50, 95),
+                cross_page_intros[page_num],
+                fontsize=8,
+                color=(0.1, 0.3, 0.7),
+            )
+        elif trap_notes and page_num in trap_notes:
+            page.insert_text(
+                fitz.Point(50, 95),
+                trap_notes[page_num],
+                fontsize=8,
+                color=(0.7, 0.2, 0.1),
+            )
 
         if is_multicolumn:
             # 2-column layout
@@ -185,12 +203,20 @@ def make_eval_m4(
         83: {"code": code1_3, "font_pt": 4.0},
         94: {"code": code1_4, "font_pt": 5.0},
     }
+    intros_doc1 = {
+        61: "[CONTINUATION SCHEDULE] Consolidated Balance Sheet Disclosures schedule begins here; verified target table continues on Page 62."
+    }
+    traps_doc1 = {
+        13: "[RECLASSIFICATION NOTICE] Note: Statutory tax reconciliation table has been relocated to Section 3.3 (Page 83)."
+    }
     build_long_doc(
         pdf1_path,
         total_pages=100,
         toc_specs=toc1,
         gold_targets=targets_doc1,
         distractor_pages={5, 20, 35, 50, 65, 88},
+        cross_page_intros=intros_doc1,
+        trap_notes=traps_doc1,
     )
 
     # 2. Document 2: 80 pages (Supply Chain & Infrastructure)
@@ -217,12 +243,20 @@ def make_eval_m4(
         64: {"code": code2_3, "font_pt": 4.0},
         74: {"code": code2_4, "font_pt": 5.0},
     }
+    intros_doc2 = {
+        48: "[CONTINUATION SCHEDULE] Power Distribution Telemetry data series begins here; full verification table continues on Page 49."
+    }
+    traps_doc2 = {
+        15: "[RECLASSIFICATION NOTICE] Note: Incident telemetry verification records have been transferred to Chapter 3 Outage Post-Mortems (Page 64)."
+    }
     build_long_doc(
         pdf2_path,
         total_pages=80,
         toc_specs=toc2,
         gold_targets=targets_doc2,
         distractor_pages={8, 22, 38, 52, 70},
+        cross_page_intros=intros_doc2,
+        trap_notes=traps_doc2,
     )
 
     # 3. Document 3: 60 pages (Compliance & Audit)
@@ -248,12 +282,20 @@ def make_eval_m4(
         48: {"code": code3_3, "font_pt": 4.0},
         56: {"code": code3_4, "font_pt": 5.0},
     }
+    intros_doc3 = {
+        38: "[CONTINUATION SCHEDULE] Compliance Verification filings summary begins here; full confirmation table continues on Page 39."
+    }
+    traps_doc3 = {
+        1: "[AUDIT DISCLOSURE] Note: Independent external auditor statements are published under Section 3.1 (Page 48)."
+    }
     build_long_doc(
         pdf3_path,
         total_pages=60,
         toc_specs=toc3,
         gold_targets=targets_doc3,
         distractor_pages={10, 24, 42, 58},
+        cross_page_intros=intros_doc3,
+        trap_notes=traps_doc3,
     )
 
     # 4. Document 4: 50 pages (Track B: Realistic Multi-column Layout)
@@ -278,12 +320,16 @@ def make_eval_m4(
         36: {"code": code4_3, "font_pt": 4.0},
         45: {"code": code4_4, "font_pt": 5.0},
     }
+    intros_doc4 = {
+        23: "[CONTINUATION SCHEDULE] Value at Risk disclosures schedule begins here; table continues on Page 24."
+    }
     build_long_doc(
         pdf4_path,
         total_pages=50,
         toc_specs=toc4,
         gold_targets=targets_doc4,
         distractor_pages={6, 16, 28, 41},
+        cross_page_intros=intros_doc4,
         is_multicolumn=True,
     )
 
