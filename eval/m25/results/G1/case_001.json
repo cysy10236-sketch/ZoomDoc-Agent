@@ -1,0 +1,27 @@
+{
+  "case_id": "case_001",
+  "group": "G1",
+  "gold": "ZD-5901-NK",
+  "gold_page": 3,
+  "font_pt": 4,
+  "region": "top_left",
+  "confusable": false,
+  "status": "answered",
+  "answer": "ZD-5901-NK",
+  "is_correct": true,
+  "reference_pages": [
+    3
+  ],
+  "zoom_count": 1,
+  "is_zoomed": true,
+  "confidence": 0.98,
+  "usage": {
+    "calls": 3,
+    "prompt_tokens": 4414,
+    "completion_tokens": 920,
+    "missing_usage_calls": 0,
+    "latency_ms": 26552.99
+  },
+  "error": null,
+  "trace_id": "m25-G1-case_001"
+}

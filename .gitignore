@@ -1,6 +1,7 @@
 references/
 .venv/
 runs/
+eval/**/runs/
 .env
 __pycache__/
 .pytest_cache/
