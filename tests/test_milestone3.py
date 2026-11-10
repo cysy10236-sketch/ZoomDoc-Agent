@@ -216,6 +216,8 @@ def test_m3_t3_tree_backtracking_on_seeker_miss_or_need_more_pages(
     part1_node = next(n for n in tree.roots if "Part 1" in n.title)
     part3_node = next(n for n in tree.roots if "Part 3" in n.title)
     leaf_correct = next(n for n in get_leaf_nodes(tree) if n.start_page <= 73 <= n.end_page)
+    leaf_1_1 = next(n for n in get_leaf_nodes(tree) if "1.1" in n.title)
+    leaf_1_2 = next(n for n in get_leaf_nodes(tree) if "1.2" in n.title)
 
     page_73_index = 73 - leaf_correct.start_page
 
@@ -272,7 +274,6 @@ def test_m3_t3_tree_backtracking_on_seeker_miss_or_need_more_pages(
     fake_vlm = FakeVLM(scripted)
     settings = Settings(
         runs_dir=str(tmp_path),
-        max_steps=12,
         max_seek_rounds=1,  # Exhaust intra-section quickly so R7b triggers
         max_inspect_rounds=2,
         max_nav_rounds=3,
@@ -290,6 +291,9 @@ def test_m3_t3_tree_backtracking_on_seeker_miss_or_need_more_pages(
     assert state.nav_rounds == 2
     assert result.status == "answered"
     assert result.answer == "ZD-9042-M3"
+    # 验证修复：Part 1 被选时仅真正进入 <=20 页预算的 1.1 被标记已访问，被截断的 1.2 未被误标
+    assert leaf_1_1.node_id in state.visited_node_ids
+    assert leaf_1_2.node_id not in state.visited_node_ids
 
 
 def test_m3_t4_candidate_pages_hard_cap_20(synthetic_100p_pdf: str) -> None:

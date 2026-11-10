@@ -313,6 +313,9 @@ def navigator_subgraph_node(
 
     return {
         "candidate_pages": report.candidate_pages,
+        "selected_pages": [],
+        "verdict": None,
+        "seek_rounds": 0,
         "visited_node_ids": updated_visited,
         "nav_reports": [report],
         "nav_rounds": state.nav_rounds + 1,
@@ -647,7 +650,12 @@ def run_m3(
 ) -> tuple[FinalResultM3, SupervisorState]:
     """Main execution entry point for ZoomDoc Milestone 3 pipeline."""
     base_cfg = settings or get_settings()
-    cfg = base_cfg.model_copy(update={"use_tree_index": True})
+    cfg = base_cfg.model_copy(
+        update={
+            "use_tree_index": True,
+            "max_steps": max(base_cfg.max_steps, 16),
+        }
+    )
     t_id = trace_id or uuid.uuid4().hex[:12]
     run_dir = Path(cfg.runs_dir) / t_id
     run_dir.mkdir(parents=True, exist_ok=True)

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pymupdf as fitz
+from pydantic import ValidationError
 
 from zoomdoc.schemas import DocTreeNode, DocumentTree
 from zoomdoc.vision.render import sha256_file
@@ -196,14 +197,14 @@ def build_document_tree(
             try:
                 data = json.loads(cache_file.read_text(encoding="utf-8"))
                 return DocumentTree.model_validate(data)
-            except Exception:
+            except (OSError, json.JSONDecodeError, ValidationError):
                 pass
 
     doc = fitz.open(pdf_path)
     total_pages = len(doc)
     if total_pages == 0:
         doc.close()
-        return DocumentTree(doc_id=doc_id, total_pages=0, max_leaf_pages=max_leaf_pages, roots=[])
+        raise ValueError("Cannot build document tree for empty PDF (0 pages)")
 
     # 1. Try reading native PDF TOC Bookmarks
     raw_toc = doc.get_toc()  # [[level, title, page], ...]
@@ -252,16 +253,6 @@ def build_document_tree(
             if nxt_lvl <= lvl:
                 e_page = max(s_page, nxt_s_page - 1)
                 break
-            elif j == i + 1:
-                # If child starts on a later page, parent end_page at least spans till end
-                pass
-
-        # Also clamp to subsequent item's start_page regardless of level if next starts later
-        if i + 1 < n_items:
-            nxt_s_page = cleaned_toc[i + 1][2]
-            if nxt_s_page > s_page and e_page >= nxt_s_page:
-                # Parent can span till its sub-sections end, but end_page shouldn't exceed total_pages
-                pass
 
         items_with_span.append({
             "level": lvl,
@@ -404,11 +395,8 @@ def build_document_tree(
         counter_id += 1
 
         # Extract text preview from start page
-        try:
-            start_text = doc.load_page(n.start_page - 1).get_text("text")
-            summary = sanitize_summary_text(start_text, max_chars=200)
-        except Exception:
-            summary = ""
+        start_text = doc.load_page(n.start_page - 1).get_text("text")
+        summary = sanitize_summary_text(start_text, max_chars=200)
         object.__setattr__(n, "summary", summary)
 
         for c in n.children:

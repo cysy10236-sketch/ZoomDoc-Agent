@@ -139,7 +139,7 @@ def nav_pack_report_node(state: NavigatorSubState) -> dict[str, Any]:
         report = NavigatorReport(
             nav_round=state.nav_round,
             status=status,
-            selected_node_ids=state.selected_node_ids,
+            selected_node_ids=newly_visited,
             candidate_pages=pages,
             reason=reason,
             sub_steps=state.sub_step,
@@ -160,7 +160,7 @@ def nav_pack_report_node(state: NavigatorSubState) -> dict[str, Any]:
         report = NavigatorReport(
             nav_round=state.nav_round,
             status=status,
-            selected_node_ids=state.current_frontier,
+            selected_node_ids=newly_visited,
             candidate_pages=pages,
             reason=reason,
             sub_steps=state.sub_step,
