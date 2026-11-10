@@ -1,6 +1,6 @@
 # ZoomDoc-Agent：架构蓝图与施工计划
 
-> 文档版本：v0.4（2026-11-10）。v0.4 变更：新增 §11 Milestone 3 架构契约与瓶颈审查、§12 Milestone 3 施工指导手册（PageIndex 式无向量层级树索引 + Navigator 导航子 Agent，解除 20 页硬上限，支撑 100+ 页长文档）。v0.3 变更：里程碑重排为 M2 子图隔离 → M2.5 真实 VLM 评测门 → M3 树索引 → M4 正式评测 → M5 Redis（条件触发）；新增 §10 M2.5 规格。v0.2 变更：新增 §7 Milestone 1 代码审查、§8 Milestone 2 架构契约、§9 Milestone 2 施工手册。§4–§5 保留为 M1 施工记录，不再修改。
+> 文档版本：v0.5（2026-11-10）。v0.5 变更：新增 §13 Milestone 4 架构契约与科学评测设计、§14 Milestone 4 施工指导手册（正式基准评测、对等滑窗网格基线 `run_sliding_grid_baseline`、H1 Token 节省率 Bootstrap CI 检验、渲染耗时占比剖析与 M5 Redis 触发裁决）。v0.4 变更：新增 §11 Milestone 3 架构契约与瓶颈审查、§12 Milestone 3 施工指导手册（PageIndex 式无向量层级树索引 + Navigator 导航子 Agent，解除 20 页硬上限，支撑 100+ 页长文档）。v0.3 变更：里程碑重排为 M2 子图隔离 → M2.5 真实 VLM 评测门 → M3 树索引 → M4 正式评测 → M5 Redis（条件触发）；新增 §10 M2.5 规格。v0.2 变更：新增 §7 Milestone 1 代码审查、§8 Milestone 2 架构契约、§9 Milestone 2 施工手册。§4–§5 保留为 M1 施工记录，不再修改。
 > 读者：总架构师（审阅）、Gemini 3.8 Flash（施工方）
 > 证据来源：`references/ViDoRAG`（浅克隆 HEAD）、`references/PageIndex`（浅克隆 HEAD）。所有源码引用格式为 `文件:行号`，行号基于本地克隆。
 > 认知标注：`[Fact]` = 已读源码确认；`[Design]` = 本项目新设计，ViDoRAG 或 PageIndex 中没有；`[Hypothesis]` = 未经测试，附带证伪路径；`[UNVERIFIED]` = 外部事实，施工前必须核对。
@@ -2137,3 +2137,230 @@ def run_navigator_round(
    - 在 100 页多章节合成文档上构造 10 个不同章节的测试 Query（黄金页分布在 `p5, p18, p32, p47, p60, p73, p82, p91` 等 10 个位置），验证树导航 + Seeker 链路对黄金参考页的章节召回率（`gold_page in candidate_pages` 且 `gold_page in selected_pages`）达到 $10/10 = 100\% \ge 90\%$，且每次 Seeker 调用的输入页数全部 $\le 20$。
 6. **`test_m3_t6_m1_m2_zero_regression`**：
    - 全量运行 `pytest -q`，确保 M1/M2/M2.5 原有 45 项测试 + M3 新增测试 100% 通过。
+
+
+---
+
+## 13. Milestone 4 架构契约与科学评测设计（正式基准评测、H1 判决与 M5 触发门）
+
+### 13.1 为什么 M2.5 不足以替代 M4？（评测认知落差分析）
+
+1. **文档规模落差**：M2.5 仅在 4 页短文档上评测了 `Inspector + Zoom + Critic` 的局部阅读增益，从未在 50~100 页长文档上评测 `Tree Builder + Navigator + Seeker + Inspector` 的**全链路召回率与端到端准确率**。
+2. **核心假说 `H1`（Token 节省率 $\ge 60\%$）尚未检验**：§2.2 提出的 `[Hypothesis H1]`（树路由 + 缩略图粗筛 + 局部按需放大相比 ViDoRAG 式全量网格扫描节省 $\ge 60\%$ 提示词 Token，即 Token 比值 $\le 0.40$）在 M1–M3 均未做配对基线实验。
+3. **Milestone 5（Redis 缓存）的条件触发门（§2.5）需要物理剖析数据**：§2.5 规定，仅当 M4 实测 **PDF 渲染耗时占单次端到端运行总耗时 $\ge 20\%$，或单次运行 P95 延迟 $\ge 120,000\text{ ms}$** 时，才启动 M5（Redis 内容寻址缓存）；否则判定按需渲染 + 本地文件幂等已足够高效，避免过度工程化。
+
+### 13.2 对等基线设计（Fair Baselines & Anti-Strawman Protocol）
+
+遵循学术准则第 17 条（严禁设立弱基线），在 60~100 页长文档上，原版 ViDoRAG 因 20 页网格硬上限无法直接运行。为此，我们设计 **4 组严格受控的对比系统**（使用完全相同的模型快照、相同的 `temperature=0`、`seed=42` 与相同的判分函数）：
+
+| 组别代号 | 系统配置名称 | 路由与感知机制（60~100 页长文档） | 消融对比目的 |
+|---|---|---|---|
+| **B0 (`SlidingGrid-FullRes`)** | ViDoRAG 对等扩展基线（无树、1024px 高清网格滑窗） | 将长文档按 20 页/窗切分为 $\lceil P/20 \rceil$ 个滑窗；对每个窗口以 `thumb_long_side=1024`（ViDoRAG `scale=1` 等效高分辨率）运行 Seeker 选页，汇总所有窗口选中页（截断至 `max_inspector_images=6`）交由 Inspector（`max_zooms=0`）作答。 | **检验 H1 的基准分母**：代表无树索引、无主动放大时，靠高分辨率全书网格扫描所需的真实 Token 与延迟成本。 |
+| **B1 (`SlidingGrid-Thumb`)** | 缩略图滑窗 + 主动放大（无树索引消融组） | 同 B0 按 20 页滑窗扫描全书，但使用 `thumb_long_side=448` 低分辨率网格；汇总各窗选中页后交由 `Inspector + Zoom + Critic`（`max_zooms=3`）作答。 | **消融 Navigator 树索引的独立贡献**：对比 `M3-Full` vs `B1`，量化 PageIndex 树路由在减少滑窗调用次数、降低跨章干扰表误召回上的净收益。 |
+| **B2 (`Tree-NoZoom`)** | 树导航 + 缩略图粗筛（无 Zoom 消融组） | 启用 `run_m3`（`Tree + Navigator + Seeker`），但设 `max_zooms=0, max_inspect_rounds=1`。 | **长文档下复核 H2**：证明即使 Navigator 精准命中章节、Seeker 命中目标页，缺乏局部高清 Zoom 仍无法读出密集表格中的极小字。 |
+| **M3-Full (`ZoomDoc-M3`)** | 本项目完整体（Tree + Navigator + Seeker + Zoom + Critic） | 启用 `run_m3` 默认完整配置（`use_tree_index=True, max_zooms=3, max_inspect_rounds=2, critic_min_confidence=0.6`）。 | **主力评测系统**：同时考核章节召回率、页面召回率、最终答案准确率、Token 节省率与渲染耗时占比。 |
+
+### 13.3 双轨基准数据集与防数据污染审计（Dual-Track Benchmark & Contamination Audit）
+
+为兼顾**离线 CI 零成本确定性测试**与**真实文档泛化能力评估**，M4 数据集生成器 `scripts/make_eval_m4.py` 采用双轨设计（总样本量 $N = 20$，支持 `--n` 扩展至 $50$）：
+
+1. **Track A：长文档合成压力集（`Synthetic-Long-Hard`，默认 $N_A = 12$）**：
+   - 跨 3 个不同的 60~100 页多层级长 PDF（涵盖财务衍生品附表、供应链遥测日志、合规审计附录 3 类主题），每个 PDF 含 4 层目录结构、跨页正文描述 + 后续页附表（测试跨页表格关联）、每章设置 2 个同构干扰表格（测试抗干扰能力）。
+   - 正交因子：文档页数 $P \in \{60, 100\}$ × 目标字号 $\text{font\_pt} \in \{4, 5\}$ × 问题类型 `query_type ∈ {"direct_section", "cross_page_table", "backtrack_trap"}`（其中 `backtrack_trap` 在标题相似的干扰章节放置”详见第 X.Y 节附表”的交叉引用提示，专门测试 R7b 跨章树回溯能力）。
+2. **Track B：真实/外部多模态文档基准适配集（`External-Doc-Subset`，默认 $N_B = 8$）**：
+   - 自动扫描本地是否存在外部真实 PDF 样本（如 `eval/external/` 或 `references/PageIndex/tests/data/` 下的真实多页报告 PDF）并构造带精确物理页码锚点与标准答案的测试清单；若本地无外部大文件，则自动使用 PyMuPDF 渲染生成包含真实多栏学术排版、跨页财务资产负债表与密集脚注的仿真财报集（`Realistic-10K-Bench`）。
+3. **防数据污染与记忆重放审计（Contamination & Memorization Audit，准则第 18 条）**：
+   - 实现 `zoomdoc/eval/metrics.py::compute_ngram_overlap(prompts: list[str], gold_answers: list[str], n: int = 4) -> dict`：
+   - 审计所有测试样本的 `gold` 答案及关键数值是否曾出现在 `zoomdoc/prompts.py` 的 Few-Shot 示例中（计算字符级与 token 级 Overlap Ratio），并校验所有合成金标码采用时间戳隔离的随机哈希种子（`seed=2026111004`），确保先验记忆重放率为 **0.0%**。
+
+### 13.4 渲染耗时埋点、统计检验与雙门禁判决规则（H1 + M5 Gate）
+
+1. **全链路耗时拆分埋点（Render vs. Tree vs. VLM Profiling）**：
+   - 在 `FinalResultM3`（或评测记录 `EvalCaseRecordM4`）中精确计量三个正交时间分量：
+     - `render_latency_ms: float`：由 `render_pdf` / `render_pdf_pages` 实际执行 PyMuPDF 光栅化与 Pillow 缩放落盘的耗时总和；
+     - `tree_latency_ms: float`：`build_document_tree` 构建目录树的耗时；
+     - `vlm_latency_ms: float`：`state.usage.latency_ms`（所有 VLM API 调用耗时总和）；
+     - `total_wall_ms: float`：单次运行端到端挂钟总耗时。
+2. **核心指标与非参数统计检验（`zoomdoc/eval/metrics.py`）**：
+   - **检索召回率漏斗**：
+     - 章节召回率 $\text{Recall}_{\text{nav}} = \mathbb{I}(\text{gold\_page} \in \bigcup \text{nav\_reports.candidate\_pages})$；
+     - 粗筛召回率 $\text{Recall}_{\text{seek}} = \mathbb{I}(\text{gold\_page} \in \bigcup \text{selected\_pages})$；
+     - 端到端准确率 $\text{Acc} = \mathbb{I}(\text{normalize}(\text{pred}) == \text{normalize}(\text{gold}))$（附 95% Wilson 置信区间）。
+   - **H1 视觉/提示 Token 节省率与 Bootstrap 置信区间**：
+     - 对同一测试样本 $i \in \{1 \dots N\}$，记完整系统 `M3-Full` 的总 `prompt_tokens` 为 $T_i^{\text{M3}}$，全分辨率滑窗基线 `B0` 的总 `prompt_tokens` 为 $T_i^{\text{B0}}$。
+     - 定义样本级 Token 消耗比 $r_i = T_i^{\text{M3}} / T_i^{\text{B0}}$，总体 Token 比值 $\hat{R} = \frac{\sum_{i=1}^N T_i^{\text{M3}}}{\sum_{i=1}^N T_i^{\text{B0}}}$，总体 Token 节省率 $\hat{S} = 1 - \hat{R}$。
+     - 采用 **Paired Bootstrap Resampling**（重采样次数 $B = 2000$，固定种子 `seed=42`）计算 $\hat{R}$ 与 $\hat{S}$ 的 **95% 置信区间 $[R_{\text{low}}, R_{\text{high}}]$**。
+3. **双门禁形式化判决规则（写入 `eval/m4/report.md` 首部）**：
+   - **H1 判决（Token 节省率 $\ge 60\%$ 假说）**：
+     - `PASS-H1`：$\hat{R} \le 0.40$（即总体节省率 $\hat{S} \ge 60.0\%$）且 `M3-Full` 准确率 $\ge$ `B0` 准确率；
+     - `PARTIAL-H1`：$0.40 < \hat{R} \le 0.65$（节省率在 $35\% \sim 60\%$ 之间）且准确率不低于 `B0`；
+     - `FAIL-H1`：$\hat{R} > 0.65$ 或 `M3-Full` 准确率显著低于 `B0`。
+   - **M5 触发判决（Redis 内容寻址缓存门禁，对齐 §2.5）**：
+     - 计算 `M3-Full` 组的平均渲染耗时占比 $\rho_{\text{render}} = \text{mean}(\text{render\_latency\_ms} / \text{total\_wall\_ms})$ 与端到端延迟 $P_{95}(\text{total\_wall\_ms})$：
+     - 若 $\rho_{\text{render}} \ge 0.20$ **或** $P_{95}(\text{total\_wall\_ms}) \ge 120,000\text{ ms}$ $\longrightarrow$ 输出 `M5_REDIS_TRIGGER: REQUIRED`；
+     - 否则 $\longrightarrow$ 输出 `M5_REDIS_TRIGGER: OPTIONAL_SKIPPED (On-demand lazy rendering sufficient)`。
+
+---
+
+## 14. Milestone 4 施工指导手册（读者：Gemini 3.8 Flash）
+
+> [!IMPORTANT]
+> **施工铁律**：
+> 1. 严禁破坏 M1/M2/M2.5/M3 已有的 **51 个测试**。
+> 2. 所有统计计算函数（Bootstrap 置信区间、n-gram 污染审计、耗时分位数、召回率漏斗）必须封装在独立模块 `zoomdoc/eval/` 下，做到 100% 纯 Python 标准库实现（`math`, `random`, `statistics`），不引入 `scipy` 等重型外部依赖。
+> 3. 严格遵守 `ConfigDict(extra="forbid")`、零宽泛 `except Exception`、零 `print`（CLI 与评测脚本终端进度汇报除外）。
+
+### 14.1 新增与修改文件清单
+
+| 动作 | 文件路径 | 模块职责 |
+|---|---|---|
+| 修改 | `zoomdoc/schemas.py` | 在 `FinalResultM3` 中新增可选性能剖析字段：`render_latency_ms: float = 0.0`, `tree_latency_ms: float = 0.0`, `total_wall_ms: float = 0.0` |
+| 修改 | `zoomdoc/graph/supervisor.py` | 在 `ingest_node`, `tree_builder_node`, `seeker_node`, `finalize_node`, `run_m3` 中用 `time.perf_counter()` 记录 `render_latency_ms`, `tree_latency_ms`, `total_wall_ms` 并写入 `SupervisorState` 与 `FinalResultM3` |
+| 修改 | `zoomdoc/graph/states.py` | 在 `SupervisorState` 中新增 `render_latency_ms: Annotated[float, operator.add] = 0.0`, `tree_latency_ms: Annotated[float, operator.add] = 0.0` |
+| 新增 | `zoomdoc/eval/__init__.py` | 评测包初始化，导出基线运行器与全部统计指标函数 |
+| 新增 | `zoomdoc/eval/baselines.py` | 实现对等滑窗网格基线运行器 `run_sliding_grid_baseline`（支持 `B0` 1024px 无放大 与 `B1` 448px + Inspector 子图放大） |
+| 新增 | `zoomdoc/eval/metrics.py` | 实现 `paired_bootstrap_ratio_ci`, `compute_ngram_overlap`, `audit_prompt_contamination`, `compute_recall_funnel`, `evaluate_m5_trigger` |
+| 新增 | `scripts/make_eval_m4.py` | 生成 M4 双轨评测集（Track A 长文档多因子 + Track B 仿真财报/外部集），输出 `eval/m4/manifest.jsonl` |
+| 新增 | `scripts/eval_m4.py` | 支持 `--group B0\|B1\|B2\|M3\|all --manifest eval/m4/manifest.jsonl --resume --limit N` 的幂等评测执行器 |
+| 新增 | `scripts/report_m4.py` | 读取 `eval/m4/results/` 生成完整学术级评测报告 `eval/m4/report.md`（含 H1 Bootstrap 判决、M5 Redis 触发判决、召回漏斗、防污染审计表）与 `eval/m4/bad_cases.jsonl` |
+| 新增 | `tests/test_milestone4.py` | M4 全链路单元测试与 FakeVLM 4 组对比闭环验收测试套件（`T1`–`T6`） |
+
+### 14.2 接口规范与函数签名契约
+
+#### 14.2.1 `zoomdoc/schemas.py` 与 `zoomdoc/graph/states.py` 耗时埋点扩展
+
+1. 在 `zoomdoc/schemas.py` 的 `FinalResultM3` 中追加字段（带默认值，100% 兼容 M3 现有测试）：
+   ```python
+   class FinalResultM3(FinalResultM2):
+       """继承 FinalResultM2，新增树导航与性能剖析统计字段。"""
+       nav_rounds: int = 0
+       selected_node_ids: list[str] = Field(default_factory=list)
+       total_pages: int = 0
+       render_latency_ms: float = 0.0
+       tree_latency_ms: float = 0.0
+       total_wall_ms: float = 0.0
+   ```
+2. 在 `zoomdoc/graph/states.py` 的 `SupervisorState` 中追加：
+   ```python
+   render_latency_ms: Annotated[float, operator.add] = 0.0
+   tree_latency_ms: Annotated[float, operator.add] = 0.0
+   ```
+3. 在 `zoomdoc/graph/supervisor.py` 中：
+   - `ingest_node`：用 `t0 = time.perf_counter()` 测量 `render_pdf` 耗时（毫秒），返回 `"render_latency_ms": round((time.perf_counter() - t0) * 1000.0, 2)`；
+   - `tree_builder_node`：测量 `build_document_tree` 耗时，返回 `"tree_latency_ms": round((time.perf_counter() - t0) * 1000.0, 2)`；
+   - `seeker_node`：测量 `render_pdf_pages` 按需渲染耗时，返回 `"render_latency_ms": round(render_ms, 2)`；
+   - `finalize_node` 與 `synthesizer_text_node`：在构造 `FinalResultM3` 时填入 `render_latency_ms=round(state.render_latency_ms, 2)` 与 `tree_latency_ms=round(state.tree_latency_ms, 2)`；
+   - `run_m3`：在入口处记录 `t_start = time.perf_counter()`，图执行完毕后计算 `wall_ms = round((time.perf_counter() - t_start) * 1000.0, 2)`，通过 `res_m3 = res_m3.model_copy(update={"total_wall_ms": wall_ms})` 更新并重新写回 `run_dir / "result.json"`。
+
+#### 14.2.2 `zoomdoc/eval/baselines.py` 对等滑窗网格基线运行器
+
+```python
+def run_sliding_grid_baseline(
+    question: str,
+    pdf_path: str,
+    *,
+    mode: Literal["B0_fullres_nozoom", "B1_thumb_zoom"],
+    vlm: VLMClient | None = None,
+    settings: Settings | None = None,
+    trace_id: str | None = None,
+    window_size: int = 20,
+) -> tuple[FinalResultM3, list[int]]:
+    """ViDoRAG 对等扩展的长文档滑窗网格基线（无树索引）：
+    1. 获取 PDF 总页数 total_pages = get_pdf_page_count(pdf_path)。
+    2. 根据 mode 构造基准 Settings：
+       - 若 mode == "B0_fullres_nozoom"：设置 thumb_long_side = settings.view_long_side (1024), max_zooms = 0, max_inspect_rounds = 1；
+       - 若 mode == "B1_thumb_zoom"：设置 thumb_long_side = 448, max_zooms = 3, max_inspect_rounds = 1。
+    3. 将 1..total_pages 按 window_size (20) 切分为连续窗口：
+       对每个窗口 win_pages：
+       - 调用 render_pdf_pages(pdf_path, win_pages, run_dir, cfg) 渲染并累加 render_latency_ms；
+       - 调用 Seeker.run(question, candidate_assets, feedback=None, ...) 获取该窗口选中的物理页码 win_selected，累加 usage。
+    4. 汇总所有窗口选中的页码 all_selected（保持顺序去重）：
+       - 若 all_selected 为空：直接返回 status="no_answer" 的 FinalResultM3 与 []；
+       - 若 len(all_selected) > cfg.max_inspector_images (6)：截取前 cfg.max_inspector_images 页作为 final_selected_pages。
+    5. 调用 run_inspector_round(question=question, round_=1, pages=sub_pages, ...) 执行检视（B0 下 max_zooms=0 不裁剪；B1 下允许最多 3 次裁剪），累加 usage。
+    6. 返回 (FinalResultM3, all_selected)。
+    """
+```
+
+#### 14.2.3 `zoomdoc/eval/metrics.py` 统计检验与审计工具函数
+
+```python
+def paired_bootstrap_ratio_ci(
+    numerator_vals: list[float],
+    denominator_vals: list[float],
+    *,
+    n_boot: int = 2000,
+    confidence: float = 0.95,
+    seed: int = 42,
+) -> dict[str, float]:
+    """计算配对样本比值 R = sum(num) / sum(den) 及节省率 S = 1 - R 的 Bootstrap 置信区间：
+    - 前置条件：len(numerator_vals) == len(denominator_vals) >= 1，且 sum(denominator_vals) > 0，否则 raise ValueError。
+    - 使用 random.Random(seed) 进行 n_boot 次有放回抽样（每次抽取 N 个配对索引），计算每次重采样的 ratio_b = sum(num_b) / sum(den_b)。
+    - 返回 {
+        "ratio": round(point_ratio, 4),
+        "ratio_ci_low": round(r_low, 4),
+        "ratio_ci_high": round(r_high, 4),
+        "savings": round(1.0 - point_ratio, 4),
+        "savings_ci_low": round(1.0 - r_high, 4),
+        "savings_ci_high": round(1.0 - r_low, 4),
+      }。
+    """
+
+def compute_ngram_overlap(
+    candidate_texts: list[str],
+    reference_corpus: str,
+    n: int = 4,
+) -> dict[str, Any]:
+    """防数据污染审计：计算候选金标答案/问题与系统内置 Prompt 语料（reference_corpus）的字符级及词级 n-gram 重叠率：
+    - 返回 {
+        "exact_match_count": int,
+        "exact_match_rate": float,
+        "char_ngram_overlap_rate": float,
+        "leaked_items": list[str],
+      }。
+    """
+
+def evaluate_m5_trigger(
+    render_latencies_ms: list[float],
+    total_wall_latencies_ms: list[float],
+    *,
+    render_ratio_threshold: float = 0.20,
+    p95_wall_threshold_ms: float = 120000.0,
+) -> dict[str, Any]:
+    """根据 §2.5 规则判定是否需要触发 Milestone 5 (Redis 缓存)：
+    - 计算每个样本的 render_share = render_ms / max(wall_ms, 1e-6) 的均值 mean_render_share；
+    - 计算 total_wall_latencies_ms 的 P95 分位数 p95_wall_ms；
+    - triggered = (mean_render_share >= render_ratio_threshold) or (p95_wall_ms >= p95_wall_threshold_ms)；
+    - 返回 {
+        "triggered": bool,
+        "decision": "REQUIRED" if triggered else "OPTIONAL_SKIPPED",
+        "mean_render_share": round(mean_render_share, 4),
+        "p95_wall_ms": round(p95_wall_ms, 2),
+        "reason": str,
+      }。
+    """
+```
+
+### 14.3 单测验收标准（`tests/test_milestone4.py`）
+
+必须包含以下 6 项确定性单元测试（全部使用 `FakeVLM` 离线运行，毫秒/秒级完成）：
+
+1. **`test_m4_t1_latency_profiling_in_run_m3`**：
+   - 在合成长文档上运行 `run_m3`，验证返回的 `FinalResultM3` 中 `render_latency_ms > 0`、`tree_latency_ms >= 0`、`total_wall_ms >= render_latency_ms`，且落盘的 `result.json` 包含这三个字段。
+2. **`test_m4_t2_sliding_grid_baselines_b0_and_b1`**：
+   - 生成一个 45 页合成 PDF（含 3 个 20/20/5 页滑窗，金标在第 33 页）。
+   - 验证 `run_sliding_grid_baseline(..., mode="B0_fullres_nozoom")` 依次调用 3 次 Seeker（对应 3 个滑窗）+ 1 次 Inspector（共 4 次 VLM 调用），且在 `B0` 下不触发任何 `zoom`；
+   - 验证 `B1_thumb_zoom` 模式下 Inspector 可正常触发 `zoom` 高清裁剪并正确作答。
+3. **`test_m4_t3_paired_bootstrap_ratio_ci_and_h1_verdict`**：
+   - 给定一组已知的配对 Token 数据（如 `B0 = [10000, 12000, 11000, 9000]`，`M3 = [3000, 3600, 3300, 2700]`，真实比值恒为 `0.30`，节省率 `0.70`），验证 `paired_bootstrap_ratio_ci` 返回 `ratio == 0.30`、`savings == 0.70`，且置信区间紧收敛于 `0.30`。
+   - 验证当 `denominator_vals` 全为 0 或长度不匹配时显式抛出 `ValueError`。
+4. **`test_m4_t4_contamination_audit_zero_leakage`**：
+   - 调用 `make_eval_m4.py` 生成 M4 评测集 `manifest.jsonl`，读取全部样本的 `gold` 答案，与 `zoomdoc/prompts.py` 全文进行 `compute_ngram_overlap` 审计：
+   - 断言 `exact_match_count == 0`（M1 调试用过的 `ZD-7319-QX` 绝不出现在 M4 评测集中），证明零先验记忆泄漏。
+5. **`test_m4_t5_m5_redis_trigger_gate_logic`**：
+   - 测试两组耗时输入：
+     - 组 A（`render=[500, 600]`, `wall=[25000, 30000]`，占比 `2%`，P95 `< 120s`）$\to$ 断言 `decision == "OPTIONAL_SKIPPED"`；
+     - 组 B（`render=[8000, 9000]`, `wall=[30000, 32000]`，占比 `> 20%`）或 P95 `>= 120000` $\to$ 断言 `decision == "REQUIRED"`。
+6. **`test_m4_t6_end_to_end_eval_and_report_m4_pipeline`**：
+   - 用 `FakeVLM` 在 2 个长文档样本上跑通 `eval_m4.py` 的 `B0, B1, B2, M3` 四组评测（测试 `--resume` 幂等跳过），并调用 `report_m4.py` 生成 `report.md` 与 `bad_cases.jsonl`。
+   - 断言 `report.md` 中包含 `H1_VERDICT:`、`M5_REDIS_TRIGGER:`、召回率漏斗表与防污染审计表，且 M1–M3 原有 51 项测试 100% 零回归。

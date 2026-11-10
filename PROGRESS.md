@@ -307,3 +307,59 @@
 4. **章节召回率与零回归**：
    - 10 个跨章节测试 Query 章节召回率达到 **100%**（$\ge 90\%$ 基准达成）；
    - M1/M2/M2.5 已有的 45 个测试保持 **100% 零修改通过**。
+
+
+# Milestone 4 施工进度清单（正式基准评测、H1 Bootstrap 检验与 M5 触发门）
+
+- [x] Step 1: 耗时剖析字段与状态机埋点扩展
+  - [x] `zoomdoc/schemas.py`: `FinalResultM3` 新增 `render_latency_ms: float = 0.0`, `tree_latency_ms: float = 0.0`, `total_wall_ms: float = 0.0`
+  - [x] `zoomdoc/graph/states.py`: `SupervisorState` 新增 `render_latency_ms: Annotated[float, operator.add] = 0.0`, `tree_latency_ms: Annotated[float, operator.add] = 0.0`
+  - [x] `zoomdoc/graph/supervisor.py`: `ingest_node`, `tree_builder_node`, `seeker_node`, `synthesizer_text_node`, `finalize_node`, `run_m3` 实现 `time.perf_counter()` 精确物理耗时计量与结果持久化
+- [x] Step 2: 评测包与对等滑窗网格基准运行器
+  - [x] `zoomdoc/eval/__init__.py`: 导出评测运行器与统计指标函数
+  - [x] `zoomdoc/eval/baselines.py`: 实现 `run_sliding_grid_baseline`（对等实现 ViDoRAG 滑窗扫描，支持 `B0_fullres_nozoom` 1024px 高清无放大 与 `B1_thumb_zoom` 448px 缩略图主动放大）
+- [x] Step 3: 统计指标与科学检验工具
+  - [x] `zoomdoc/eval/metrics.py`: 纯 Python 标准库实现 `paired_bootstrap_ratio_ci`（Paired Bootstrap 重采样 2000 次计算 Token 比值与节省率 95% 置信区间）
+  - [x] `zoomdoc/eval/metrics.py`: 实现 `compute_ngram_overlap`（数据污染与先验记忆重放审计）
+  - [x] `zoomdoc/eval/metrics.py`: 实现 `evaluate_m5_trigger`（§2.5 Redis 缓存门禁判定：渲染耗时占比 $\ge 20\%$ 或 P95 延迟 $\ge 120,000\text{ ms}$）
+  - [x] `zoomdoc/eval/metrics.py`: 实现 `compute_recall_funnel`, `wilson_score_interval`, `normalize_text`
+- [x] Step 4: 双轨评测集与基准自动化评测流水线
+  - [x] `scripts/make_eval_m4.py`: 自动生成 Track A（60~100 页长文档合成压力集，3 种主题、跨页表格与回溯陷阱）与 Track B（仿真多栏学术与财报集），输出 `eval/m4/manifest.jsonl`，种子固定 `seed=2026111004`，金标答案时间戳隔离且严格排除调试字符串
+  - [x] `scripts/eval_m4.py`: 4 组消融系统执行脚本（支持 `B0`, `B1`, `B2`, `M3`, `all`），支持 `--resume` 断点续跑与幂等跳过，单样本异常捕获与隔离
+  - [x] `scripts/report_m4.py`: 读取结果生成学术级 Markdown 评测报告 `eval/m4/report.md`（包含 H1 判决、M5 触发门裁决、4 组综合对比表、Bootstrap 统计检验、防数据污染审计表）与 `eval/m4/bad_cases.jsonl`
+- [x] Step 5: 全链路自动化单元测试套件（T1–T6）
+  - [x] `tests/test_milestone4.py`: 覆盖 6 项硬性验收用例：
+    - T1: `test_m4_t1_latency_profiling_in_run_m3`（耗时埋点物理核验）
+    - T2: `test_m4_t2_sliding_grid_baselines_b0_and_b1`（滑窗网格基准运行）
+    - T3: `test_m4_t3_paired_bootstrap_ratio_ci_and_h1_verdict`（Bootstrap 比值与置信区间精确性）
+    - T4: `test_m4_t4_contamination_audit_zero_leakage`（0.0% 先验泄漏审计）
+    - T5: `test_m4_t5_m5_redis_trigger_gate_logic`（Redis 缓存触发门禁真值表）
+    - T6: `test_m4_t6_end_to_end_eval_and_report_m4_pipeline`（端到端离线流水线闭环与报告生成）
+- [x] Step 6: 全量回归测试与交付
+  - [x] `python -m compileall -q zoomdoc scripts tests` (Exit code 0)
+  - [x] `python -m pytest -q` (57 passed in 54.59s, Exit code 0)
+
+## Milestone 4 交付报告
+
+### 1. 语法检查与全量单元测试
+- 语法检查：`python -m compileall -q zoomdoc scripts tests`（退出码 **0**）
+- 全量测试：`python -m pytest -q`（全部 **57 项通过**，用时 **54.59s**）
+```
+.........................................................                [100%]
+57 passed in 54.59s
+```
+
+### 2. 评测框架与科学指标达成情况
+1. **对等长文档基线解耦（B0 vs B1 vs B2 vs M3-Full）**：
+   - 在 60~100 页长文档上，构建 `run_sliding_grid_baseline`（B0 高清 1024px 无放大、B1 448px 缩略图主动放大），与 M3 树导航架构构成严格对等控制变量；
+   - 彻底杜绝稻草人基线，在相同模型快照、`temperature=0`、`seed=42` 与相同归一化判分函数下运行。
+2. **H1 假说 Paired Bootstrap 统计检验闭环**：
+   - 纯标准库实现 `paired_bootstrap_ratio_ci`（重采样 $B=2000$，置信度 95%），支持对样本级 Token 比值 $\hat{R}$ 与节省率 $\hat{S} = 1 - \hat{R}$ 给出紧收敛的非参数置信区间；
+   - 对等验证判决规则：$\hat{R} \le 0.40 \to \text{PASS-H1}$，并在 T3 单元测试中通过已知数据完全闭环校验。
+3. **Milestone 5 Redis 缓存触发门禁物理裁决机制**：
+   - 建立全链路耗时拆分（`render_latency_ms`, `tree_latency_ms`, `total_wall_ms`）；
+   - 严格遵循 §2.5 条件触发门规则：仅当平均渲染耗时占比 $\ge 20\%$ 或 P95 端到端延迟 $\ge 120,000\text{ ms}$ 时输出 `REQUIRED`，否则输出 `OPTIONAL_SKIPPED`，避免无必要的基础设施过度工程化。
+4. **防数据污染审计与零先验记忆重放**：
+   - 针对测试集金标实现字符级与 4-gram 重叠审计，实测与 `prompts.py` 重叠率为 **0.0%**，严格排除了 M1 历史调试字符串 `ZD-7319-QX`。
+5. **零回归质量守恒**：
+   - M1/M2/M2.5/M3 已有的全部 51 项测试 **100% 保持通过**，新增 6 项 M4 测试一次性全绿。

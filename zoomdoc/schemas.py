@@ -235,8 +235,11 @@ NavigatorOutput = Annotated[
 
 
 class FinalResultM3(FinalResultM2):
-    """继承 FinalResultM2，新增树导航统计字段。"""
+    """继承 FinalResultM2，新增树导航与性能剖析统计字段。"""
 
     nav_rounds: int = 0
     selected_node_ids: list[str] = Field(default_factory=list)
     total_pages: int = 0
+    render_latency_ms: float = 0.0
+    tree_latency_ms: float = 0.0
+    total_wall_ms: float = 0.0

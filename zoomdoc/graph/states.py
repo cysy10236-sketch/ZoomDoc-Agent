@@ -182,6 +182,8 @@ class SupervisorState(BaseModel):
     result: FinalResultM2 | None = None
     usage: Annotated[UsageTotals, merge_usage] = Field(default_factory=UsageTotals)
     history: Annotated[list[StepRecord], operator.add] = Field(default_factory=list)
+    render_latency_ms: Annotated[float, operator.add] = 0.0
+    tree_latency_ms: Annotated[float, operator.add] = 0.0
 
 
 class NavigatorSubState(BaseModel):

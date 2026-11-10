@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import functools
+import time
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -211,11 +212,14 @@ def ingest_node(state: SupervisorState, settings: Settings) -> dict[str, Any]:
             "candidate_pages": [],
             "step": state.step + 1,
             "history": [step_rec],
+            "render_latency_ms": 0.0,
         }
 
     if total_pages <= settings.max_pages and not settings.use_tree_index:
         # Milestone 1 & 2 backwards-compatible path: pre-render all pages
+        t0 = time.perf_counter()
         pages = render_pdf(state.pdf_path, state.run_dir, settings)
+        render_ms = round((time.perf_counter() - t0) * 1000.0, 2)
         pages_dict = {p.page: p for p in pages}
         step_rec = StepRecord(
             step=state.step + 1,
@@ -231,6 +235,7 @@ def ingest_node(state: SupervisorState, settings: Settings) -> dict[str, Any]:
             "candidate_pages": [p.page for p in pages],
             "step": state.step + 1,
             "history": [step_rec],
+            "render_latency_ms": render_ms,
         }
     else:
         # Milestone 3 lazy-rendering path: defer rendering until Navigator selects candidate pages
@@ -248,6 +253,7 @@ def ingest_node(state: SupervisorState, settings: Settings) -> dict[str, Any]:
             "candidate_pages": [],
             "step": state.step + 1,
             "history": [step_rec],
+            "render_latency_ms": 0.0,
         }
 
 
@@ -257,11 +263,13 @@ def tree_builder_node(
     logger: TraceLogger,
 ) -> dict[str, Any]:
     """Build hierarchical outline DocumentTree."""
+    t0 = time.perf_counter()
     tree = build_document_tree(
         pdf_path=state.pdf_path,
         max_leaf_pages=settings.max_leaf_pages,
         out_dir=state.run_dir,
     )
+    tree_ms = round((time.perf_counter() - t0) * 1000.0, 2)
     step_rec = StepRecord(
         step=state.step + 1,
         node="tree_builder",
@@ -274,6 +282,7 @@ def tree_builder_node(
         "doc_tree": tree,
         "step": state.step + 1,
         "history": [step_rec],
+        "tree_latency_ms": tree_ms,
         "next": None,
     }
 
@@ -345,8 +354,11 @@ def seeker_node(
     # Render any candidate pages that have not yet been rendered (lazy on-demand rendering)
     missing_pages = [p for p in state.candidate_pages if p not in state.pages]
     updated_pages = dict(state.pages)
+    render_ms = 0.0
     if missing_pages:
+        t0 = time.perf_counter()
         rendered = render_pdf_pages(state.pdf_path, missing_pages, state.run_dir, settings)
+        render_ms = round((time.perf_counter() - t0) * 1000.0, 2)
         updated_pages.update(rendered)
 
     candidate_assets = [updated_pages[p] for p in state.candidate_pages]
@@ -382,6 +394,7 @@ def seeker_node(
         "step": state.step + 1,
         "history": [step_rec],
         "usage": usage_from_sink(sink),
+        "render_latency_ms": render_ms,
         "next": None,
     }
 
@@ -472,6 +485,9 @@ def synthesizer_text_node(
         nav_rounds=state.nav_rounds,
         selected_node_ids=state.visited_node_ids,
         total_pages=state.total_pages,
+        render_latency_ms=round(state.render_latency_ms, 2),
+        tree_latency_ms=round(state.tree_latency_ms, 2),
+        total_wall_ms=0.0,
         usage=merge_usage(state.usage, usage_from_sink(sink)),
         trace_id=state.trace_id,
     )
@@ -512,6 +528,9 @@ def finalize_node(state: SupervisorState, settings: Settings) -> dict[str, Any]:
                 nav_rounds=state.nav_rounds,
                 selected_node_ids=state.visited_node_ids,
                 total_pages=state.total_pages,
+                render_latency_ms=round(state.render_latency_ms, 2),
+                tree_latency_ms=round(state.tree_latency_ms, 2),
+                total_wall_ms=0.0,
                 usage=state.usage,
                 trace_id=state.trace_id,
             )
@@ -538,6 +557,9 @@ def finalize_node(state: SupervisorState, settings: Settings) -> dict[str, Any]:
                 nav_rounds=state.nav_rounds,
                 selected_node_ids=state.visited_node_ids,
                 total_pages=state.total_pages,
+                render_latency_ms=round(state.render_latency_ms, 2),
+                tree_latency_ms=round(state.tree_latency_ms, 2),
+                total_wall_ms=0.0,
                 usage=state.usage,
                 trace_id=state.trace_id,
             )
@@ -649,6 +671,7 @@ def run_m3(
     trace_id: str | None = None,
 ) -> tuple[FinalResultM3, SupervisorState]:
     """Main execution entry point for ZoomDoc Milestone 3 pipeline."""
+    t_start = time.perf_counter()
     base_cfg = settings or get_settings()
     cfg = base_cfg.model_copy(
         update={
@@ -684,12 +707,20 @@ def run_m3(
     if final_state.result is None:
         raise ZoomDocError("Pipeline finished without producing a FinalResultM3 object")
 
-    # Ensure return object is FinalResultM3
+    wall_ms = round((time.perf_counter() - t_start) * 1000.0, 2)
+
+    # Ensure return object is FinalResultM3 and update total_wall_ms
     res_m3 = (
         final_state.result
         if isinstance(final_state.result, FinalResultM3)
         else FinalResultM3.model_validate(final_state.result.model_dump())
     )
+    res_m3 = res_m3.model_copy(update={"total_wall_ms": wall_ms})
+
+    # Re-persist updated result.json
+    res_path = Path(final_state.run_dir) / "result.json"
+    with open(res_path, "w", encoding="utf-8") as f:
+        f.write(res_m3.model_dump_json(indent=2))
 
     return (res_m3, final_state)
 
