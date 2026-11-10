@@ -43,3 +43,19 @@
 - [x] Step 10: Milestone 1 验收闭环测试
   - [x] `python -m compileall -q zoomdoc scripts tests` (Exit code 0)
   - [x] `python -m pytest -q` (24 passed in 4.77s, Exit code 0)
+
+
+# Milestone 2 施工进度清单
+
+- [x] Step 0: Git 仓库初始化与 M1 基线提交
+  - [x] 配置 `.gitignore` 排除虚拟环境、测试缓存、日志和引用
+  - [x] `git init` 并创建 baseline commit
+- [x] Step 1: LangGraph 状态机探针测试
+  - [x] 创建 `tests/test_langgraph_probe.py`
+  - [x] 验证 Pydantic state 的 `Annotated[list, operator.add]` 与自定义 reducer
+  - [x] 验证节点函数内部以 mapped input 独立 invoke 编译子图
+  - [x] Pytest 验证输出：
+    ```
+    .........................                                                [100%]
+    25 passed in 4.04s
+    ```
