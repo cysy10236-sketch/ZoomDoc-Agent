@@ -168,3 +168,32 @@
 
 ### 4. 实施偏离说明
 - **无偏离**：完全严格依照《Milestone 2 施工指导手册》的类名、函数签名、拓扑与隔离规范实现，M1 的 24 个基线测试未改动任何一行且 100% 保持通过。
+
+
+# Milestone 2.5 施工进度清单（评测门）
+
+- [x] Step 1: `scripts/make_eval_set.py` 合成评测集生成器
+  - [x] 全因子实验设计（$2 \times 3 \times 2 = 12$ 格，每格 2 样本，共 $N=24$）
+  - [x] 涵盖字号（4pt, 6pt）、区域（`top_left`, `center`, `bottom_right`）、易混淆字符（`Q/D`, `O/0`, `1/l`, `5/S`, `8/B`）
+  - [x] 注入干扰表格与唯一金标页，生成 `eval/m25/manifest.jsonl`
+- [x] Step 2: `scripts/eval_m25.py` 三组消融执行脚本
+  - [x] 支持 G0 (no-zoom), G1 (zoom), G2 (zoom+critic)
+  - [x] 支持 `--resume` 幂等断点续跑
+  - [x] 严格确定性归一化判分（大小写与首尾标点清洗，非 LLM 判分）
+- [x] Step 3: `scripts/report_m25.py` 统计报表与判决生成器
+  - [x] 95% Wilson 计分置信区间计算函数
+  - [x] McNemar 双侧精确检验（二项式分布，无需外置依赖）
+  - [x] 点二列相关系数 $r_{pb}$ 与三档置信度分桶准确率分析
+  - [x] 自动判定决策规则（`FAIL-H2`, `PASS-WEAK-CRITIC`, `PASS`）并导出 `bad_cases.jsonl`
+- [x] Step 4: `tests/test_eval_m25.py` 评测流水线测试
+  - [x] 验证归一化判分逻辑
+  - [x] 验证 Wilson 置信区间与 McNemar 精确检验手算对照
+  - [x] 验证 FakeVLM 2 样本 x 3 组运行、断点恢复与报告输出
+  - [x] Pytest 验证输出（45/45 PASSED）：
+    ```
+    .............................................                            [100%]
+    45 passed in 12.03s
+    ```
+- [x] Step 5: 真实 VLM G0 探针验证
+  - [x] 实测 `case_001` 在 G0 (`max_zooms=0`) 下行为：模型正常作答，未触发异常重试耗尽
+  - [x] 物理观测：未放大的 4pt 红色字标由 `ZD-5901-NK` 识别为 `Z0-9901-XX`（发生歧义字符错误），印证了主动视觉放大的必要性假说
