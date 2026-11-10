@@ -11,7 +11,7 @@ from zoomdoc.graph.states import (
     merge_usage,
     usage_from_sink,
 )
-from zoomdoc.schemas import CitedRegion, NormBBox, UsageTotals, VLMUsage
+from zoomdoc.schemas import CitedRegion, FinalResultM2, NormBBox, StepRecord, UsageTotals, VLMUsage
 
 
 def test_merge_usage() -> None:
@@ -244,3 +244,141 @@ def test_inspector_subgraph_isolated_round(tmp_path: Path) -> None:
     assert report.cited_regions[1].page_box is not None
     assert report.usage.calls == 2
     assert report.usage.prompt_tokens == 200
+
+
+from zoomdoc.graph.supervisor import decide_next
+
+
+def test_decide_next_truth_table() -> None:
+    settings = Settings(
+        max_steps=8,
+        max_inspect_rounds=2,
+        max_seek_rounds=2,
+    )
+    base_kwargs = dict(
+        trace_id="t1",
+        question="q",
+        pdf_path="p.pdf",
+        run_dir="runs/t1",
+    )
+
+    dummy_answered_evidence = EvidenceReport(
+        round=1,
+        status="answered",
+        answer="A1",
+        confidence=0.9,
+        reason="r",
+        reference_pages=[1],
+        cited_regions=[],
+        zoom_count=0,
+        sub_steps=1,
+        usage=UsageTotals(),
+    )
+
+    # R0: Result already exists
+    s_r0 = SupervisorState(**base_kwargs, result=FinalResultM2(
+        status="answered", answer="A", reason="R", reference_pages=[1],
+        cited_regions=[], inspect_rounds=1, seek_rounds=1, usage=UsageTotals(), trace_id="t1"
+    ))
+    nxt, upd = decide_next(s_r0, settings)
+    assert nxt == "finalize"
+
+    # R1: Step budget exceeded
+    s_r1_ans = SupervisorState(**base_kwargs, step=8, evidence=[dummy_answered_evidence])
+    nxt, upd = decide_next(s_r1_ans, settings)
+    assert nxt == "synthesizer"
+
+    s_r1_noans = SupervisorState(**base_kwargs, step=8, evidence=[])
+    nxt, upd = decide_next(s_r1_noans, settings)
+    assert nxt == "finalize"
+
+    # R2: Initial state with candidates
+    s_r2 = SupervisorState(**base_kwargs, candidate_pages=[1, 2, 3])
+    nxt, upd = decide_next(s_r2, settings)
+    assert nxt == "seeker"
+
+    s_r2_empty = SupervisorState(**base_kwargs, candidate_pages=[])
+    nxt, upd = decide_next(s_r2_empty, settings)
+    assert nxt == "finalize"
+
+    # R3: Seeker selected pages
+    s_r3 = SupervisorState(
+        **base_kwargs,
+        selected_pages=[2],
+        history=[StepRecord(step=1, node="seeker", input_images=[], output={}, usage=None, attempts=1)],
+    )
+    nxt, upd = decide_next(s_r3, settings)
+    assert nxt == "inspector"
+    assert upd.get("inspect_rounds") == 1
+
+    # R4: Seeker selected nothing
+    s_r4 = SupervisorState(
+        **base_kwargs,
+        selected_pages=[],
+        evidence=[dummy_answered_evidence],
+        history=[StepRecord(step=1, node="seeker", input_images=[], output={}, usage=None, attempts=1)],
+    )
+    nxt, upd = decide_next(s_r4, settings)
+    assert nxt == "synthesizer"
+
+    # R5: Critic accepted
+    s_r5 = SupervisorState(
+        **base_kwargs,
+        evidence=[dummy_answered_evidence],
+        verdict=CriticVerdict(accepted=True, reason_code="ok", detail="Passed"),
+        history=[StepRecord(step=2, node="critic", input_images=[], output={}, usage=None, attempts=1)],
+    )
+    nxt, upd = decide_next(s_r5, settings)
+    assert nxt == "finalize"
+    assert upd.get("final_answer") == "A1"
+
+    # R6: Critic rejected with low confidence and inspect_rounds < max
+    s_r6 = SupervisorState(
+        **base_kwargs,
+        evidence=[dummy_answered_evidence],
+        inspect_rounds=1,
+        verdict=CriticVerdict(accepted=False, reason_code="low_confidence", detail="Needs zoom"),
+        history=[StepRecord(step=2, node="critic", input_images=[], output={}, usage=None, attempts=1)],
+    )
+    nxt, upd = decide_next(s_r6, settings)
+    assert nxt == "inspector"
+    assert upd.get("inspect_rounds") == 2
+    assert upd.get("feedback") == "Needs zoom"
+
+    # R7: Critic requires more pages and candidate_pages exist
+    rep_need_more = EvidenceReport(
+        round=1,
+        status="need_more_pages",
+        answer=None,
+        confidence=None,
+        reason="Missing page",
+        seek_hint="Look for appendix",
+        reference_pages=[],
+        cited_regions=[],
+        zoom_count=0,
+        sub_steps=1,
+        usage=UsageTotals(),
+    )
+    s_r7 = SupervisorState(
+        **base_kwargs,
+        candidate_pages=[3, 4],
+        seek_rounds=1,
+        evidence=[rep_need_more],
+        verdict=CriticVerdict(accepted=False, reason_code="need_more_pages", detail="Needs more pages"),
+        history=[StepRecord(step=2, node="critic", input_images=[], output={}, usage=None, attempts=1)],
+    )
+    nxt, upd = decide_next(s_r7, settings)
+    assert nxt == "seeker"
+    assert upd.get("feedback") == "Look for appendix"
+
+    # R8: Fallback when rounds exhausted
+    s_r8 = SupervisorState(
+        **base_kwargs,
+        candidate_pages=[3, 4],
+        seek_rounds=2,  # equals max_seek_rounds
+        evidence=[dummy_answered_evidence],
+        verdict=CriticVerdict(accepted=False, reason_code="need_more_pages", detail="Needs more pages"),
+        history=[StepRecord(step=2, node="critic", input_images=[], output={}, usage=None, attempts=1)],
+    )
+    nxt, upd = decide_next(s_r8, settings)
+    assert nxt == "synthesizer"

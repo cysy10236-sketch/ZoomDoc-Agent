@@ -100,3 +100,13 @@
     ................................                                         [100%]
     32 passed in 4.72s
     ```
+- [x] Step 6: `graph/supervisor.py` 主图编排与真值表测试
+  - [x] 实现 `decide_next` (R0–R8 完整确定性规则)
+  - [x] 实现 `ingest_node`, `supervisor_node`, `route_from_supervisor`, `seeker_node`, `inspector_subgraph_node`, `synthesizer_text_node`, `finalize_node`
+  - [x] 实现 `build_supervisor_graph` 与 `run_m2`
+  - [x] 单元测试 `test_decide_next_truth_table` 覆盖 R0–R8 各分支条件
+  - [x] Pytest 验证输出（33/33 PASSED）：
+    ```
+    .................................                                        [100%]
+    33 passed in 4.79s
+    ```
