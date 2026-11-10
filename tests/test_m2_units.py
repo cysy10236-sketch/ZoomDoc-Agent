@@ -119,3 +119,61 @@ def test_supervisor_state_field_contract() -> None:
     # Ensure SupervisorState has no image or crop fields
     forbidden_fields = {"crops", "view", "pending_zoom", "last_output", "sub_step", "zoom_count"}
     assert set(SupervisorState.model_fields.keys()).isdisjoint(forbidden_fields)
+
+
+from zoomdoc.graph.critic import evaluate_report
+
+
+def test_evaluate_report_branches() -> None:
+    valid_pages = {1, 2, 3}
+    min_conf = 0.6
+    base_kwargs = dict(
+        round=1,
+        status="answered",
+        answer="Valid Answer",
+        confidence=0.8,
+        reason="Clear text visible",
+        reference_pages=[2],
+        cited_regions=[],
+        zoom_count=0,
+        sub_steps=1,
+        usage=UsageTotals(),
+    )
+
+    # 1. budget_exhausted
+    rep_budget = EvidenceReport(**dict(base_kwargs, status="budget_exhausted", answer=None))
+    v_budget = evaluate_report(rep_budget, valid_pages, min_conf)
+    assert not v_budget.accepted
+    assert v_budget.reason_code == "budget_exhausted"
+
+    # 2. need_more_pages
+    rep_seek = EvidenceReport(**dict(base_kwargs, status="need_more_pages", answer=None, seek_hint="need page 4"))
+    v_seek = evaluate_report(rep_seek, valid_pages, min_conf)
+    assert not v_seek.accepted
+    assert v_seek.reason_code == "need_more_pages"
+    assert "need page 4" in v_seek.detail
+
+    # 3. no_answer
+    rep_no_ans = EvidenceReport(**dict(base_kwargs, answer="   "))
+    v_no_ans = evaluate_report(rep_no_ans, valid_pages, min_conf)
+    assert not v_no_ans.accepted
+    assert v_no_ans.reason_code == "no_answer"
+
+    # 4. invalid_reference (empty or not subset)
+    rep_inv_ref = EvidenceReport(**dict(base_kwargs, reference_pages=[99]))
+    v_inv_ref = evaluate_report(rep_inv_ref, valid_pages, min_conf)
+    assert not v_inv_ref.accepted
+    assert v_inv_ref.reason_code == "invalid_reference"
+
+    # 5. low_confidence
+    rep_low_conf = EvidenceReport(**dict(base_kwargs, confidence=0.35))
+    v_low_conf = evaluate_report(rep_low_conf, valid_pages, min_conf)
+    assert not v_low_conf.accepted
+    assert v_low_conf.reason_code == "low_confidence"
+    assert "0.35" in v_low_conf.detail
+
+    # 6. ok
+    rep_ok = EvidenceReport(**dict(base_kwargs, confidence=0.9))
+    v_ok = evaluate_report(rep_ok, valid_pages, min_conf)
+    assert v_ok.accepted
+    assert v_ok.reason_code == "ok"

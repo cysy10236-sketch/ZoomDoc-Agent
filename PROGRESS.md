@@ -81,3 +81,12 @@
     ..............................                                           [100%]
     30 passed in 4.25s
     ```
+- [x] Step 4: `graph/critic.py` 确定性规则评审与真值表测试
+  - [x] 实现 `evaluate_report` 6 分支确定性评审函数
+  - [x] 实现 `critic_node` 状态机节点与无图文本 trace 记录
+  - [x] 单元测试覆盖 6 种判决分支（`budget_exhausted`, `need_more_pages`, `no_answer`, `invalid_reference`, `low_confidence`, `ok`）
+  - [x] Pytest 验证输出（31/31 PASSED）：
+    ```
+    ...............................                                          [100%]
+    31 passed in 4.78s
+    ```
