@@ -1,6 +1,6 @@
 # ZoomDoc-Agent：架构蓝图与施工计划
 
-> 文档版本：v0.3（2026-11-10）。v0.3 变更：里程碑重排为 M2 子图隔离 → M2.5 真实 VLM 评测门 → M3 树索引 → M4 正式评测 → M5 Redis（条件触发）；新增 §10 M2.5 规格。v0.2 变更：新增 §7 Milestone 1 代码审查、§8 Milestone 2 架构契约、§9 Milestone 2 施工手册。§4–§5 保留为 M1 施工记录，不再修改。
+> 文档版本：v0.4（2026-11-10）。v0.4 变更：新增 §11 Milestone 3 架构契约与瓶颈审查、§12 Milestone 3 施工指导手册（PageIndex 式无向量层级树索引 + Navigator 导航子 Agent，解除 20 页硬上限，支撑 100+ 页长文档）。v0.3 变更：里程碑重排为 M2 子图隔离 → M2.5 真实 VLM 评测门 → M3 树索引 → M4 正式评测 → M5 Redis（条件触发）；新增 §10 M2.5 规格。v0.2 变更：新增 §7 Milestone 1 代码审查、§8 Milestone 2 架构契约、§9 Milestone 2 施工手册。§4–§5 保留为 M1 施工记录，不再修改。
 > 读者：总架构师（审阅）、Gemini 3.8 Flash（施工方）
 > 证据来源：`references/ViDoRAG`（浅克隆 HEAD）、`references/PageIndex`（浅克隆 HEAD）。所有源码引用格式为 `文件:行号`，行号基于本地克隆。
 > 认知标注：`[Fact]` = 已读源码确认；`[Design]` = 本项目新设计，ViDoRAG 或 PageIndex 中没有；`[Hypothesis]` = 未经测试，附带证伪路径；`[UNVERIFIED]` = 外部事实，施工前必须核对。
@@ -1531,3 +1531,609 @@ def run_m2(question, pdf_path, vlm=None, settings=None, trace_id=None) -> tuple[
 | `scripts/eval_m25.py` | 参数 `--group G0\|G1\|G2\|all --manifest ... --resume`；逐样本调用 `run_m2`，异常时记录 `status="error"` 与 traceback 并继续下一样本（这是评测脚本中唯一允许的逐样本异常捕获，捕获类型限定为 `ZoomDocError` 与 `openai.APIError`） |
 | `scripts/report_m25.py` | 读取 results 生成 `report.md` 与 `bad_cases.jsonl` |
 | `tests/test_eval_m25.py` | 用 FakeVLM 跑 2 个样本 × 3 组，验证结果文件格式、resume 跳过逻辑、判分 normalize、Wilson 区间数值（对照手算值） |
+
+
+---
+
+## 11. Milestone 3 现状摸排与架构契约（PageIndex 树索引 + Navigator 子图）
+
+### 11.1 长文档瓶颈审查（为什么 M1/M2 锁死在 `max_pages=20`）
+
+1. **代码硬上限三处阻塞 `[Fact]`**：
+   - `zoomdoc/vision/render.py:46`：`if total_pages > settings.max_pages: raise ValueError(...)`（默认 `max_pages=20`），且在 `ingest` 阶段对全量页面同步执行 3 级 PNG 渲染。对于 100 页 PDF，预渲染 300 张高分辨率 PNG 将造成严重的 I/O 阻塞。
+   - `zoomdoc/vision/grid.py:11-32`：`ARRANGEMENT` 字典仅定义了 `1..20` 的行列映射（上限 `20: (4, 5)`），传入 $n > 20$ 将直接触发 `KeyError`。
+   - `zoomdoc/agents/seeker.py:40`：`assert 1 <= n <= 20` 显式断言拦截。
+2. **50~100+ 页单图网格的三大物理死锁 `[Fact / Mathematical Bound]`**：
+   - **Token 爆炸或分辨率坍缩的二元死锁**：若将 $N=100$ 页缩略图（单格 `317×448` px，分隔线 `40` px）按 $10 \times 10$ 拼合为单张画布，画布像素高达 $3530 \times 4840 \approx 1.71 \times 10^7$ px。
+     - **情况 A（不降采样直接送入 VLM）**：以 Qwen2.5-VL 的 $28 \times 28$ Patch 计，单次 Seeker 请求将消耗 $\lceil 3530/28 \rceil \times \lceil 4840/28 \rceil = 127 \times 173 = 21,971$ 视觉 Token，延迟与 API 成本失控，且超出多数 VLM 的单图最大像素阈值。
+     - **情况 B（VLM 服务端自动下采样至长边 1024~2048 px）**：若画布长边被压缩至 `1536` px，分摊到 $10 \times 10$ 网格的每一页仅剩约 **$110 \times 150$ px（等效不足 15 DPI）**。在此分辨率下，11pt 正文退化为 $< 2$ px 的灰斑，章节标题与表格结构完全不可辨识（M2.5 已证明 448px 缩略图下 4pt 字号 0% 准确率，150px 下连 14pt 标题都将失效）。
+   - **VLM 空间位置编码与跨格计数崩溃**：当网格达到 $10 \times 10$（编号 `0..99`）时，`build_page_map` 生成 10 行冗长序数文本，VLM 在二维空间上进行跨行跨列的视觉-索引对齐（Visual-Index Grounding）会出现严重的行列偏移幻觉（Off-by-One / Row-Shift Error），导致 `choice` 召回率断崖式下跌。
+
+### 11.2 选型裁决：无向量层级树（PageIndex）vs. 传统多模态向量检索（ColPali / 向量 RAG）
+
+| 评估维度 | 传统多模态/文本向量 RAG（如 ColPali / Patch Embedding） | ZoomDoc M3：PageIndex 无向量层级树 + 视觉-语义双轨路由 |
+|---|---|---|
+| **跨页表格与图文分离** | **语义割裂（Semantic Fragmentation）**：固定窗口切块或单页孤立 Embedding 破坏“正文论述在第 $p$ 页、对应财务附表在第 $p+3$ 页”的章内拓扑关联；续表脱离表头页后无法被向量余弦相似度召回。 | **章内连续性保全（Structural Continuity）**：树节点严格绑定物理页码区间 `[start_page, end_page]`，整个逻辑小节（含跨页表格、图注与上下文）作为原子候选集（$\le 20$ 页）整体移交 Seeker 视觉网格。 |
+| **长文档全局视野与回溯** | **Top-$K$ 静态截断**：一次性检索 Top-$K$ 页面，若首轮 Embedding 漏检（如财报术语同义词漂移），下游 Agent 无结构化上下文可供推理回溯。 | **状态机剪枝与树回溯（Tree Backtracking）**：Navigator 维护 `visited_node_ids`，若下游 Seeker/Critic 判定当前章节无解（`need_more_pages` 且章内候选池耗尽），主图自动路由回 Navigator 探索次优兄弟/父节点分支。 |
+| **索引构建成本与可解释性** | **高昂算力与黑盒**：100 页 PDF 需对每页渲染并运行重型视觉编码器（ColPali 产生十万级 Patch 向量）及维护向量库；检索失败时难以定位原因。 | **零向量库、毫秒级原生提取**：优先解析 PDF 原生目录树（`doc.get_toc()`）+ 字体字号启发式大纲切分（借鉴 `PageIndex`），纯文本 JSON 树结构完全透明、幂等落盘，Navigator 仅消耗千级纯文本 Token 即可将 100 页收敛至 $\le 20$ 页。 |
+
+### 11.3 树结构与数据模型契约（`zoomdoc/index/tree.py` & `zoomdoc/schemas.py`）
+
+严格遵循 `ConfigDict(extra="forbid")` 与 1-based 物理页码锚点（对齐 `PageIndex` 的 `physical_index`）：
+
+```python
+class DocTreeNode(BaseModel):
+    """文档层级树节点契约（对齐 PageIndex 思想，支持递归嵌套）。"""
+    model_config = ConfigDict(extra="forbid")
+
+    node_id: str                           # 4 位零填充唯一标识，如 "0001", "0002"（对齐 page_index_md.py:205）
+    structure: str                         # 层级编码，如 "1", "1.1", "1.2.1"（对齐 page_index_classic.py:651）
+    title: str                             # 章节标题文本
+    level: int = Field(ge=1)               # 深度层级，1 表示顶层章
+    start_page: int = Field(ge=1)          # 1-based 闭区间起始物理页码
+    end_page: int = Field(ge=1)            # 1-based 闭区间结束物理页码（满足 end_page >= start_page）
+    summary: str = ""                      # 章节首尾页轻量文本摘要（前 200 字符脱敏文本，无图像）
+    children: list["DocTreeNode"] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _validate_span(self) -> "DocTreeNode":
+        if self.end_page < self.start_page:
+            raise ValueError(f"Invalid page span [{self.start_page}, {self.end_page}] in node {self.node_id}")
+        return self
+
+    @property
+    def page_span(self) -> int:
+        return self.end_page - self.start_page + 1
+
+class DocumentTree(BaseModel):
+    """整树索引模型。"""
+    model_config = ConfigDict(extra="forbid")
+
+    doc_id: str                            # PDF sha256[:16]
+    total_pages: int = Field(ge=1)
+    max_leaf_pages: int = Field(default=20, ge=1, le=20)
+    roots: list[DocTreeNode] = Field(default_factory=list)
+```
+
+**树索引提取与大节点自动拆分机制（`build_document_tree`）**：
+1. **三级提取流水线**：
+   - **路径 A（原生 TOC 优先）**：调用 PyMuPDF `doc.get_toc()` 获取 `[[level, title, page], ...]`，通过栈式建树算法（移植 `page_index_md.py:192 build_tree_from_nodes`）构建层级关系，并根据下一同级/父级节点的 `start_page` 自动推算闭区间 `end_page`。若首页前存在无目录覆盖的前言页（`1 .. first_toc_page - 1`），自动补齐 `"0000"` Front-Matter 节点（借鉴 `tree_optimize.py:add_intro_nodes`）。
+   - **路径 B（启发式字体/正则大纲解析）**：当 `doc.get_toc()` 为空时，扫描每页文本块（`page.get_text("dict")`），提取字号显著大于全书正文中位数字号或匹配章节正则（`^(Chapter|Section|\d+(\.\d+)*)\s+`）的行作为标题锚点，生成层级树。
+   - **路径 C（确定性分块兜底 + 叶子跨度硬约束）**：继承 `page_index_classic.py:1175` 的大节点拆分思想，任何叶子节点若 `page_span > max_leaf_pages`（默认 20），自动按 `max_leaf_pages` 步长均匀拆分为子分段节点 `"{title} (Part k)"`，确保**任意叶子节点的页跨度严格 $\le 20$**。
+2. **按需渲染解耦（Lazy / On-Demand Rendering）**：
+   - 修改 `vision/render.py`：新增 `render_pdf_pages(pdf_path, page_numbers, out_dir, settings)`，仅对被选中的物理页码集合渲染 `source/view/thumb` 三级图像；保留原 `render_pdf` 供 $\le 20$ 页的 M1/M2 兼容调用。100 页长文档在 `ingest` 阶段只读取页数并校验 PDF，**绝不预渲染全书 100 页图像**，仅在 Navigator 锁定 $\le 20$ 页候选池后，由 `seeker_node` 按需渲染这 $\le 20$ 页！
+3. **Prompt 注入防护**：提取页面首段文本生成节点 `summary` 时，强制经过 `_sanitize_doc_text` 过滤指令注入词（移植 `page_index_classic.py:14-28`）。
+
+### 11.4 状态契约升级（`SupervisorState` & `NavigatorSubState`）
+
+1. **`NavigatorReport`（Navigator 子图 → 主图的唯一纯文本出口契约）**：
+   ```python
+   class NavigatorReport(BaseModel):
+       """Navigator 子图向主图返回的唯一路由报告契约。extra='forbid'，严禁包含图像数据。"""
+       model_config = ConfigDict(extra="forbid")
+
+       nav_round: int = Field(ge=1)
+       status: Literal["located", "exhausted", "budget_exhausted"]
+       selected_node_ids: list[str]
+       candidate_pages: list[int]          # 1-based 升序去重页码列表，长度严格 <= max_pages (20)
+       reason: str                         # 路由选择理由
+       sub_steps: int
+       usage: UsageTotals
+
+       @model_validator(mode="after")
+       def _check_leak_and_bounds(self) -> "NavigatorReport":
+           _assert_no_image_payload(self.model_dump())
+           if len(self.candidate_pages) > 20:
+               raise ValueError(f"NavigatorReport candidate_pages count {len(self.candidate_pages)} exceeds hard limit 20")
+           return self
+   ```
+2. **`NavigatorSubState`（第二个独立子图私有状态，纯文本，零图像）**：
+   ```python
+   class NavigatorSubState(BaseModel):
+       """Navigator 子图私有状态：自顶向下或全局检索文档树，生命周期仅限单次 invoke。"""
+       model_config = ConfigDict(extra="forbid")
+
+       trace_id: str
+       question: str
+       nav_round: int = Field(ge=1)
+       doc_tree: DocumentTree
+       visited_node_ids: list[str] = Field(default_factory=list)   # 跨轮已访问过的节点 ID，防止重复进入死胡同
+       feedback: str | None = None                                 # 上一轮未命中时的回溯提示
+       current_frontier: list[str] = Field(default_factory=list)   # 当前层待评估的节点 ID 列表
+       selected_node_ids: list[str] = Field(default_factory=list)  # 最终选定的目标节点 ID
+       last_reason: str = ""
+       sub_step: int = 0
+       max_nav_steps: int = 4
+       max_candidate_pages: int = 20
+       usage: UsageTotals = Field(default_factory=UsageTotals)
+       report: NavigatorReport | None = None
+   ```
+3. **`SupervisorState` 扩展（向后兼容 M2）**：
+   - 新增字段：
+     - `total_pages: int = 0`
+     - `doc_tree: DocumentTree | None = None`
+     - `nav_reports: Annotated[list[NavigatorReport], operator.add] = Field(default_factory=list)`
+     - `visited_node_ids: list[str] = Field(default_factory=list)`
+     - `nav_rounds: int = 0`
+   - `next` 的 `Literal` 扩展为：`Literal["tree_builder", "navigator", "seeker", "inspector", "critic", "synthesizer", "finalize"] | None = None`。
+
+### 11.5 双子图有向图拓扑结构（Graph Topology）
+
+```mermaid
+flowchart TD
+    S((START)) --> ING["ingest: check PDF & render if <=20 pages"]
+    ING --> TB["tree_builder: build_document_tree (TOC / Heuristic / Split <=20)"]
+    TB --> SUP{"supervisor: decide_next"}
+
+    subgraph NavSub["Navigator Subgraph (Pure Text, Isolated State)"]
+        direction TB
+        NP["nav_prepare: format unvisited tree outline"] --> NS["nav_step: VLM/LLM expand or select nodes"]
+        NS --> NR{"route_nav"}
+        NR -->|"action=expand & sub_step < max_nav_steps"| NP
+        NR -->|"action=select or leaf reached or budget"| NPK["nav_pack_report: prune pages <= 20"]
+    end
+
+    SUP -->|"next=navigator (candidate_pages empty & nav_rounds < max_nav_rounds)"| NAV["navigator_subgraph_node: map_in -> invoke -> map_out (5 keys)"]
+    NAV --> SUP
+
+    SUP -->|"next=seeker (candidate_pages non-empty <= 20)"| SEEK["seeker: on-demand render <=20 thumbs & grid select"]
+    SEEK --> SUP
+
+    subgraph InspSub["Inspector Subgraph (Multi-Res Vision, Isolated State)"]
+        direction TB
+        IP["prepare: build view"] --> II["inspect: VLM answer / zoom / seek"]
+        II --> IR{"route_inspect"}
+        IR -->|"zoom"| IZ["zoom: high-res crop"]
+        IZ --> IP
+        IR -->|"answer / seek / budget"| IPK["pack_report: EvidenceReport"]
+    end
+
+    SUP -->|"next=inspector"| INSP["inspector_subgraph_node: map_in -> invoke -> map_out (5 keys)"]
+    INSP --> CRI["critic: deterministic rule check"]
+    CRI --> SUP
+
+    SUP -->|"next=synthesizer"| SYN["synthesizer_text: pure text synthesis"]
+    SUP -->|"next=finalize"| FIN["finalize: write result.json & supervisor_state.json"]
+    SYN --> FIN
+    FIN --> E((END))
+```
+
+**`decide_next(state, settings)` 升级规则表（R0–R9，兼容 M2 且支持树导航与树回溯）**：
+
+| 规则 | 触发条件 | 目标节点 `next` | 状态更新副作用（Updates） |
+|---|---|---|---|
+| **R0** | `state.result is not None` | `finalize` | `{}` |
+| **R1** | `state.step >= settings.max_steps` | 有 answered 证据 → `synthesizer`，否则 `finalize` | `{}` |
+| **R2a** | `verdict is None and not evidence and not selected_pages` 且 `candidate_pages` 非空 | `seeker` | `{}` |
+| **R2b** | `verdict is None and not evidence and not selected_pages` 且 `candidate_pages` 为空 | 若 `doc_tree is not None` 且 `nav_rounds < max_nav_rounds` 且上一节点不是刚返回空集的 `navigator` → `navigator`；否则 `finalize` | `{}` |
+| **R2c** | 上一节点为 `navigator` | 若 `candidate_pages` 非空 → `seeker`；否则（Navigator `exhausted`）若有 answered 证据 → `synthesizer` 否则 `finalize` | `{}` |
+| **R3** | 上一节点为 `seeker` 且 `selected_pages` 非空 | `inspector` | `{"inspect_rounds": state.inspect_rounds + 1}` |
+| **R4** | 上一节点为 `seeker` 且 `selected_pages` 为空（本章节粗筛未命中） | 若 `doc_tree is not None` 且 `nav_rounds < max_nav_rounds` → `navigator`（**树回溯**：换章节）；否则若有 answered 证据 → `synthesizer` 否则 `finalize` | 回溯 `navigator` 时：`{"feedback": "Previous section thumbnails did not contain relevant pages; select alternative sections."}` |
+| **R5** | `verdict is not None and verdict.accepted` | `finalize` | `{"final_answer": state.evidence[-1].answer}` |
+| **R6** | `verdict.reason_code ∈ {low_confidence, invalid_reference, budget_exhausted}` 且 `inspect_rounds < max_inspect_rounds` | `inspector` | `{"feedback": state.verdict.detail, "inspect_rounds": state.inspect_rounds + 1}` |
+| **R7a** | `verdict.reason_code == need_more_pages` 且 `candidate_pages` 非空 且 `seek_rounds < max_seek_rounds` | `seeker`（**章内重筛**） | `{"feedback": state.evidence[-1].seek_hint}` |
+| **R7b** | `verdict.reason_code == need_more_pages` 且（`candidate_pages` 为空 或 `seek_rounds >= max_seek_rounds`）且 `doc_tree is not None` 且 `nav_rounds < max_nav_rounds` | `navigator`（**跨章树回溯**） | `{"feedback": state.evidence[-1].seek_hint, "candidate_pages": []}` |
+| **R8** | 其余情况 | 有 answered 证据 → `synthesizer`，否则 `finalize` | `{}` |
+
+> **向后兼容不变量**：当文档页数 $\le 20$ 且走 `run_m2` 时，或当 `candidate_pages` 已由 `ingest` 填充（$\le 20$ 页）时，R2a 直接命中 `seeker`，M2 的全部 45 项测试 **100% 零改动通过**。当文档 $> 20$ 页（或显式启用树导航模式 `use_tree_index=True`）时，`ingest_node` 不全量填充 `candidate_pages`，而是由 `tree_builder_node` 生成 `doc_tree`，随后通过 R2b 进入 `navigator` 将候选页收敛至 $\le 20$ 页。
+
+### 11.6 两级上下文隔离机制（Two-Level Context Isolation）
+
+```mermaid
+flowchart LR
+    subgraph Sup["SupervisorState (Global Text Context)"]
+        S1["question, doc_tree, visited_node_ids, feedback"]
+        S2["candidate_pages (<=20), visited_node_ids, nav_reports += [report], usage += report.usage"]
+    end
+    subgraph Nav["NavigatorSubState (Destroyed on Exit)"]
+        N1["current_frontier, multi-turn tree expansion prompts & raw LLM outputs"]
+        N2["sub_step, internal reasoning tokens"]
+        N3["report: NavigatorReport"]
+    end
+    S1 -->|"map_in"| Nav
+    N3 -->|"map_out (7 strict keys)"| S2
+```
+
+1. **第一级隔离（Navigator 子图隔离）**：
+   - 在 `NavigatorSubState` 内部，Agent 执行自顶向下层级展开（`expand` 顶层章 $\to$ 查看子节标题与摘要 $\to$ `select` 目标叶节点）产生的所有中间 Prompt、树节点展开列表与多步推理过程，全部封存在 `NavigatorSubState` 局部作用域内，日志以 `namespace=f"navigator_sub/r{nav_round}"` 写入 `trace.jsonl`。
+   - 子图执行完毕后，`navigator_subgraph_node` **仅向主图映射返回 7 个确定性状态键**：
+     `{"candidate_pages", "visited_node_ids", "nav_reports", "nav_rounds", "usage", "step", "history", "next", "feedback"}`（其中核心业务产出仅为 `NavigatorReport`：包含 `candidate_pages`（$\le 20$ 页）、`selected_node_ids` 与 `reason` 路由理由）。
+   - `NavigatorSubState` 的私有字段（`current_frontier`, `last_reason`, `max_nav_steps`）严禁出现在 `SupervisorState` 中。
+2. **第二级隔离（Inspector 子图隔离）**：
+   - 保持 M2 的 5-key 严格映射契约不变（`{"evidence", "usage", "step", "history", "next"}`），局部高清 Crop 图像与 Base64 载荷在子图内销毁。
+
+---
+
+## 12. Milestone 3 施工指导手册（读者：Gemini 3.8 Flash）
+
+> [!IMPORTANT]
+> **施工铁律**：
+> 1. 严禁破坏 M1/M2/M2.5 现有的 45 个单元测试。所有现有函数签名保持向后兼容（新增参数必须带默认值）。
+> 2. 严格遵守 `ConfigDict(extra="forbid")`、零宽泛 `except Exception`、零 `print`、零 `assert` 充当运行时校验（统一抛 `ZoomDocError` 或 `ValueError`）。
+> 3. 每完成一个 Step 必须运行 `pytest -q` 并更新 `PROGRESS.md`。
+
+### 12.1 新增与修改文件清单
+
+| 动作 | 文件路径 | 模块职责 |
+|---|---|---|
+| 新增 | `zoomdoc/index/__init__.py` | 索引包初始化，导出 `DocTreeNode`, `DocumentTree`, `build_document_tree`, `format_tree_outline` |
+| 新增 | `zoomdoc/index/tree.py` | PDF 目录树提取（原生 TOC + 字体/正则启发式 + $>20$ 页大节点自动拆分）、页面首段摘要脱敏提取、树结构格式化与页码截断器 |
+| 新增 | `zoomdoc/agents/navigator.py` | `Navigator` Agent 封装：纯文本调用 VLM/LLM，在树大纲上执行 `expand`（展开子节点）或 `select`（选定目标章节） |
+| 新增 | `zoomdoc/graph/navigator_subgraph.py` | Navigator 独立编译子图（`nav_prepare_node` $\to$ `nav_step_node` $\to$ `route_nav` $\to$ `nav_pack_report_node`）及包装入口 `run_navigator_round` |
+| 修改 | `zoomdoc/schemas.py` | 新增 `DocTreeNode`, `DocumentTree`, `NavigatorActionExpand`, `NavigatorActionSelect`, `NavigatorOutput`, `FinalResultM3`；扩展 `StepRecord.node` 的 Literal（增加 `"tree_builder"`, `"navigator"`） |
+| 修改 | `zoomdoc/config.py` & `.env.example` | 新增 M3 配置项：`max_leaf_pages: int = 20`, `max_nav_rounds: int = 3`, `max_nav_steps: int = 4`, `use_tree_index: bool = False`（`max_pages` 仍为 20，代表单次进入 Seeker 的视觉网格硬上限） |
+| 修改 | `zoomdoc/prompts.py` | 新增 `NAVIGATOR_PROMPT_TEMPLATE` 与树节点文本渲染辅助函数 |
+| 修改 | `zoomdoc/vision/render.py` | 新增 `get_pdf_page_count(pdf_path: str) -> int` 与按需渲染函数 `render_pdf_pages(pdf_path: str, page_numbers: list[int], out_dir: str, settings: Settings) -> dict[int, PageAsset]`；原 `render_pdf` 内部复用 `render_pdf_pages` |
+| 修改 | `zoomdoc/graph/states.py` | 新增 `NavigatorReport`, `NavigatorSubState`；扩展 `SupervisorState` 支持树索引与导航轨迹 |
+| 修改 | `zoomdoc/graph/supervisor.py` | 新增 `tree_builder_node`, `navigator_subgraph_node`；升级 `ingest_node`, `seeker_node`（支持按需渲染）, `decide_next`（R0–R8 含树导航与回溯）, `build_supervisor_graph`, 新增 `run_m3` |
+| 新增 | `scripts/make_synthetic_long_pdf.py` | 生成 60~100 页带 3 级原生 TOC、章节标题、跨页干扰表与 4pt 黄金目标码的合成长文档生成器 |
+| 新增 | `scripts/run_m3.py` | M3 命令行运行入口（`--pdf --question`） |
+| 新增 | `tests/test_milestone3.py` | M3 单元测试与 100 页长文档端到端验收测试套件 |
+
+### 12.2 接口规范与函数签名契约
+
+#### 12.2.1 `zoomdoc/schemas.py` 新增模型
+
+```python
+class DocTreeNode(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    node_id: str
+    structure: str
+    title: str
+    level: int = Field(ge=1)
+    start_page: int = Field(ge=1)
+    end_page: int = Field(ge=1)
+    summary: str = ""
+    children: list["DocTreeNode"] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _validate_span(self) -> "DocTreeNode":
+        if self.end_page < self.start_page:
+            raise ValueError(f"Invalid page span [{self.start_page}, {self.end_page}] in node {self.node_id}")
+        return self
+
+    @property
+    def page_span(self) -> int:
+        return self.end_page - self.start_page + 1
+
+
+class DocumentTree(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    doc_id: str
+    total_pages: int = Field(ge=1)
+    max_leaf_pages: int = Field(default=20, ge=1, le=20)
+    roots: list[DocTreeNode] = Field(default_factory=list)
+
+
+class NavigatorExpand(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["expand"]
+    reason: str
+    node_ids: list[str] = Field(min_length=1)
+
+
+class NavigatorSelect(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["select"]
+    reason: str
+    node_ids: list[str] = Field(min_length=1)
+
+
+NavigatorOutput = Annotated[
+    Union[NavigatorExpand, NavigatorSelect],
+    Field(discriminator="action"),
+]
+
+
+class FinalResultM3(FinalResultM2):
+    """继承 FinalResultM2，新增树导航统计字段。"""
+    nav_rounds: int = 0
+    selected_node_ids: list[str] = Field(default_factory=list)
+    total_pages: int = 0
+```
+
+同时将 `StepRecord.node` 的 `Literal` 更新为：
+```python
+    node: Literal[
+        "seeker",
+        "inspector",
+        "zoom",
+        "synthesizer",
+        "critic",
+        "supervisor",
+        "ingest",
+        "pack_report",
+        "tree_builder",
+        "navigator",
+    ]
+```
+
+#### 12.2.2 `zoomdoc/config.py` 新增配置字段
+
+在 `Settings` 类中追加：
+```python
+    # Milestone 3 parameters
+    max_leaf_pages: int = Field(20, ge=1, le=20)
+    max_nav_rounds: int = Field(3, ge=1)
+    max_nav_steps: int = Field(4, ge=1)
+    use_tree_index: bool = False  # 当 total_pages > max_pages 或 use_tree_index=True 时启用 Tree + Navigator
+```
+
+#### 12.2.3 `zoomdoc/vision/render.py` 按需渲染契约
+
+```python
+def get_pdf_page_count(pdf_path: str) -> int:
+    """用 PyMuPDF 打开 PDF 返回总页数并立即关闭。"""
+
+def render_pdf_pages(
+    pdf_path: str,
+    page_numbers: list[int],
+    out_dir: str,
+    settings: Settings,
+) -> dict[int, PageAsset]:
+    """按需渲染指定的 1-based 物理页码列表（去重升序）。
+    - 前置条件：len(page_numbers) <= settings.max_pages，且每个 p 满足 1 <= p <= total_pages，违反则 raise ValueError。
+    - 幂等缓存：若 {out_dir}/assets/{doc_hash[:16]}/p{p:03d}_{source|view|thumb}.png 已存在则直接读取尺寸返回。
+    - 返回 dict[int, PageAsset]。
+    """
+
+def render_pdf(pdf_path: str, out_dir: str, settings: Settings) -> list[PageAsset]:
+    """保留 M1/M2 签名与行为不变：若 total_pages > settings.max_pages 则抛 ValueError；
+    内部调用 render_pdf_pages(pdf_path, list(range(1, total_pages + 1)), out_dir, settings) 并按页码升序返回 list。"""
+```
+
+#### 12.2.4 `zoomdoc/index/tree.py` 树构建与检索工具函数
+
+```python
+def sanitize_summary_text(text: str, max_chars: int = 200) -> str:
+    """移除换行与多余空白，过滤 prompt injection 模式（system override / ignore previous instructions 等），
+    并过滤任何形如 '.png' / '.jpg' / 'data:image' / 'base64,' 的子串以防触发防泄漏误报，截断至 max_chars。"""
+
+def build_document_tree(
+    pdf_path: str,
+    max_leaf_pages: int = 20,
+    out_dir: str | None = None,
+) -> DocumentTree:
+    """从 PDF 构建层级树 DocumentTree：
+    1. 计算 doc_id = sha256_file(pdf_path)[:16]。若 out_dir 提供且 {out_dir}/assets/{doc_id}/tree.json 已存在，直接反序列化返回（幂等）。
+    2. 尝试读取 doc.get_toc()（[[level, title, page], ...]）：
+       - 过滤非法页码（<1 或 >total_pages），按页码非递减修正；
+       - 若第一个 TOC 项起始页 > 1，自动在头部插入 [1, "Front Matter & Overview", 1]；
+       - 计算每个条目的 end_page：对第 i 个条目，其 end_page 为下一个满足 level <= current_level 的条目的 start_page - 1（若与 start_page 重叠则取 max(start_page, next_start - 1)），最后一个顶层条目的 end_page = total_pages；
+       - 用栈式算法构建父子层级并分配 structure ("1", "1.1"...) 与 4 位 node_id ("0001"...)。
+    3. 若 doc.get_toc() 为空，执行启发式扫描：
+       - 遍历各页提取顶层大字号标题或匹配 r'^(?:Chapter|Section|Part|\d+(?:\.\d+)*)\b' 的行；
+       - 若仍未检出任何标题，按 max_leaf_pages 均匀切分为顶层节点 "Section 1 (Pages 1-20)" 等。
+    4. 大节点拆分（递归后处理）：
+       - 对任意节点，若 children 为空且 page_span > max_leaf_pages，将其按 max_leaf_pages 步长拆分为多个子叶节点，node_id 依次顺延，确保所有叶子节点 page_span <= max_leaf_pages。
+       - 对任意父节点，若其自身 start_page < children[0].start_page，插入一个代表章首导言页的子叶节点 "{parent.title} (Intro)"，覆盖 [parent.start_page, children[0].start_page - 1]（若跨度 > max_leaf_pages 同样拆分）。
+    5. 为每个节点提取 start_page 页的前 200 字符经 sanitize_summary_text 处理后填入 summary。
+    6. 若 out_dir 提供，将 DocumentTree 序列化保存至 {out_dir}/assets/{doc_id}/tree.json。
+    """
+
+def flatten_tree_nodes(tree: DocumentTree) -> dict[str, DocTreeNode]:
+    """返回 node_id -> DocTreeNode 的全树映射字典。"""
+
+def get_leaf_nodes(tree: DocumentTree) -> list[DocTreeNode]:
+    """按前序遍历返回所有 children 为空的叶子节点列表。"""
+
+def collect_candidate_pages(
+    tree: DocumentTree,
+    selected_node_ids: list[str],
+    visited_node_ids: list[str],
+    max_pages: int = 20,
+) -> tuple[list[int], list[str]]:
+    """根据 Navigator 选中的 node_ids 收集物理页码并截断至 <= max_pages：
+    - 对每个选中的 node_id，若它是内部节点（有 children），将其展开为其子树下所有未访问（不在 visited_node_ids 中）的叶子节点；若它是叶子节点且未访问，直接纳入。
+    - 按选择顺序累加叶子节点的页区间 [start_page, end_page]（升序去重）：
+      - 第一个叶子节点直接加入（因为任何叶子节点 page_span <= max_leaf_pages <= max_pages，必能完整放入）；
+      - 后续叶子节点：若加入后总页数 <= max_pages，则完整加入该叶子节点并记录其 node_id 到 actual_visited_ids；若加入后超出 max_pages，则停止吸纳后续节点（留待下一轮回溯访问），确保返回页数严格 <= max_pages 且单个叶子章节不被腰斩。
+    - 返回 (candidate_pages, newly_visited_leaf_ids)。
+    """
+```
+
+#### 12.2.5 `zoomdoc/agents/navigator.py` 与 `zoomdoc/prompts.py`
+
+在 `zoomdoc/prompts.py` 中新增 `NAVIGATOR_PROMPT_TEMPLATE`：
+```text
+You are a document navigation agent. You are given a user question and a hierarchical outline of sections from a long document. Each node shows its `node_id`, `structure`, `title`, page range `[start_page-end_page]`, whether it has child subsections (`has_children`), and a short text preview (`summary`).
+
+## Task
+Choose ONE action to locate the sections most likely to answer the question:
+- "expand": if one or more parent nodes (`has_children=True`) look relevant and you want to inspect their child subsections before deciding.
+- "select": if you have identified the specific leaf sections (or small sections) whose pages should be visually inspected.
+
+## Question
+{question}
+{feedback}
+## Available Outline Nodes (Unvisited)
+{outline_block}
+
+## Response Format (JSON only, one of the following)
+A. {
+    "action": "expand",
+    "reason": "Explain which parent sections may contain the target information",
+    "node_ids": ["<node_id>", ...]
+}
+B. {
+    "action": "select",
+    "reason": "Explain why these specific sections are selected for visual inspection",
+    "node_ids": ["<node_id>", ...]
+}
+
+Return JSON only.
+```
+
+在 `zoomdoc/agents/navigator.py` 中实现：
+```python
+class Navigator:
+    """Tree outline navigation agent (pure text, zero image payload)."""
+
+    def __init__(self, vlm: VLMClient, settings: Settings, logger: TraceLogger) -> None: ...
+
+    def run(
+        self,
+        question: str,
+        frontier_nodes: list[DocTreeNode],
+        visited_node_ids: set[str],
+        feedback: str | None,
+        can_expand: bool,
+        usage_sink: list[VLMUsage] | None = None,
+        namespace: str = "navigator",
+    ) -> tuple[NavigatorOutput, VLMResponse, int]:
+        """纯文本调用 call_with_schema(adapter=TypeAdapter(NavigatorOutput))：
+        - 前置条件：frontier_nodes 非空，否则 raise ZoomDocError。
+        - validate 校验函数：
+          1. output.node_ids 中每个 nid 必须存在于 {n.node_id for n in frontier_nodes}；
+          2. 若 output.action == "expand"：必须满足 can_expand is True，且选中的 nid 至少有一个 children 非空；否则 raise ValueError 触发纠正重试。
+        """
+```
+
+#### 12.2.6 `zoomdoc/graph/navigator_subgraph.py` 子图与包装函数
+
+```python
+def nav_prepare_node(state: NavigatorSubState) -> dict[str, Any]:
+    """若 state.current_frontier 为空（初始进入）：
+    - 将 doc_tree.roots 中未完全访问的顶层节点 ID 设为 current_frontier；
+    - 若所有顶层节点下的叶子均在 visited_node_ids 中，则 current_frontier 设为空列表。
+    """
+
+def nav_step_node(
+    state: NavigatorSubState,
+    vlm: VLMClient,
+    settings: Settings,
+    logger: TraceLogger,
+) -> dict[str, Any]:
+    """若 current_frontier 为空，直接返回 {"sub_step": state.sub_step + 1}。
+    否则调用 Navigator.run(...)（can_expand = (state.sub_step + 1 < state.max_nav_steps)）：
+    - 若返回 NavigatorExpand：将选中父节点的 children（过滤掉已全部访问的子树）加上未选中的可疑同级叶节点更新为新的 current_frontier；若展开结果全部是叶子且 sub_step + 1 >= max_nav_steps，同时将它们记入 selected_node_ids 作为保底。
+    - 若返回 NavigatorSelect：将 output.node_ids 写入 selected_node_ids。
+    - 累加 usage，sub_step += 1。
+    """
+
+def route_nav(state: NavigatorSubState) -> Literal["nav_prepare", "nav_pack_report"]:
+    """若 current_frontier 为空 或 selected_node_ids 非空 或 sub_step >= state.max_nav_steps -> 'nav_pack_report'；
+    否则 -> 'nav_prepare'。"""
+
+def nav_pack_report_node(state: NavigatorSubState) -> dict[str, Any]:
+    """构造 NavigatorReport：
+    - 若 selected_node_ids 非空：调用 collect_candidate_pages(state.doc_tree, state.selected_node_ids, state.visited_node_ids, state.max_candidate_pages) 获取 (pages, newly_visited_ids)，status = "located" if pages else "exhausted"。
+    - 若 selected_node_ids 为空但 sub_step >= state.max_nav_steps（步数耗尽仍只 expand 未 select）：
+      从 current_frontier 中调用 collect_candidate_pages 兜底提取 <= max_candidate_pages 的页，status = "budget_exhausted" if not pages else "located"。
+    - 若 current_frontier 为空且无可选页：status = "exhausted", candidate_pages = []。
+    - 返回 {"report": report}。
+    """
+
+def build_navigator_subgraph(
+    vlm: VLMClient,
+    settings: Settings,
+    logger: TraceLogger,
+) -> CompiledStateGraph: ...
+
+def run_navigator_round(
+    *,
+    question: str,
+    nav_round: int,
+    doc_tree: DocumentTree,
+    visited_node_ids: list[str],
+    feedback: str | None,
+    trace_id: str,
+    vlm: VLMClient,
+    settings: Settings,
+    logger: TraceLogger,
+) -> NavigatorReport:
+    """独立编译并 invoke NavigatorSubState，仅提取并返回 NavigatorReport。"""
+```
+
+#### 12.2.7 `zoomdoc/graph/supervisor.py` 升级与 `run_m3` 入口
+
+1. **`ingest_node(state, settings)` 升级**：
+   - 先调用 `total_pages = get_pdf_page_count(state.pdf_path)`。
+   - 若 `total_pages == 0`：返回 `{"total_pages": 0, "pages": {}, "candidate_pages": [], "step": state.step + 1, "history": [step_rec]}`。
+   - 若 `total_pages <= settings.max_pages` 且 `not settings.use_tree_index`（M2 兼容快速路径）：
+     调用 `render_pdf` 渲染全部页面，`candidate_pages = [1..total_pages]`，不构建树（或 `doc_tree=None`），直接进入 `supervisor`。
+   - 若 `total_pages > settings.max_pages` 或 `settings.use_tree_index is True`（M3 树索引路径）：
+     **不在此处全量渲染 PDF**！返回 `{"total_pages": total_pages, "pages": {}, "candidate_pages": [], "step": state.step + 1, "history": [step_rec]}`，后接 `tree_builder_node`。
+2. **`tree_builder_node(state, settings, logger)`**：
+   - 当 `state.total_pages > settings.max_pages` 或 `settings.use_tree_index` 时，调用 `build_document_tree(state.pdf_path, max_leaf_pages=settings.max_leaf_pages, out_dir=state.run_dir)` 生成 `doc_tree`，记录 `StepRecord(node="tree_builder", ...)` 并写入 trace。
+   - 若 `state.total_pages <= settings.max_pages and not settings.use_tree_index`（M2 兼容模式），`ingest` 直接连 `supervisor`（或在 `decide_next` 中跳过 `tree_builder`），确保 M2 测试中 `history` 的节点序列仍然是 `["ingest", "seeker", "inspector", "critic"]`！
+   - **关键设计（保证 M2 A1 第 6 条断言 `history == ["ingest", "seeker", "inspector", "critic"]` 零回归）**：
+     `ingest` 之后通过 `supervisor` 路由！在 `decide_next` 中增加一条前置规则 **R1.5**：
+     若 `(state.total_pages > settings.max_pages or settings.use_tree_index) and state.doc_tree is None and state.total_pages > 0` $\to$ 返回 `("tree_builder", {})`！
+     这样：
+     - 对于 $\le 20$ 页且 `use_tree_index=False`（M2 默认）：`START -> ingest -> supervisor -> seeker ...`，`history` 序列与 M2 **完全一字不差**！
+     - 对于 $> 20$ 页或 `use_tree_index=True`（M3 模式）：`START -> ingest -> supervisor -> tree_builder -> supervisor -> navigator -> supervisor -> seeker ...`，清晰完整！
+3. **`seeker_node(state, vlm, settings, logger)` 按需渲染升级**：
+   - 检查 `state.candidate_pages` 中是否有尚未存在于 `state.pages` 的页码：`missing = [p for p in state.candidate_pages if p not in state.pages]`。
+   - 若 `missing` 非空，调用 `newly_rendered = render_pdf_pages(state.pdf_path, missing, state.run_dir, settings)`，合并进 `updated_pages = {**state.pages, **newly_rendered}` 并在返回字典中包含 `"pages": updated_pages`。
+4. **`run_m3` 入口函数**：
+   ```python
+   def run_m3(
+       question: str,
+       pdf_path: str,
+       vlm: VLMClient | None = None,
+       settings: Settings | None = None,
+       trace_id: str | None = None,
+   ) -> tuple[FinalResultM3, SupervisorState]:
+       """Milestone 3 主入口：强制开启 use_tree_index=True（若调用方未显式关闭），
+       运行 build_supervisor_graph，返回 (FinalResultM3, SupervisorState)。"""
+   ```
+
+### 12.3 单测验收标准与合成长文档测试桩设计（`tests/test_milestone3.py`）
+
+#### 12.3.1 合成 100 页长文档生成器（`scripts/make_synthetic_long_pdf.py`）
+
+实现函数 `create_synthetic_long_pdf(out_path: str, total_pages: int = 100, gold_page: int = 73, gold_code: str = "ZD-9042-M3") -> dict`：
+1. 生成 `total_pages`（默认 100 页）A4 PDF。
+2. 构建 3 级原生目录（通过 `doc.set_toc(toc)` 写入 PyMuPDF Bookmarks），并在每页顶部绘制 20pt 章节大标题与 11pt 章节导言文本：
+   - **Part 1: Corporate Governance & Strategy** (Pages 1–25)
+     - 1.1 Board Overview (Pages 1–12)
+     - 1.2 Risk Factors & Compliance (Pages 13–25)
+   - **Part 2: Operational Infrastructure & Supply Chain** (Pages 26–55)
+     - 2.1 Logistics Network (Pages 26–40)
+     - 2.2 Warehouse Telemetry (Pages 41–55)
+   - **Part 3: Financial Statements & Audit Notes** (Pages 56–85)
+     - 3.1 Consolidated Balance Sheets (Pages 56–68)
+     - 3.2 Off-Balance-Sheet Derivative Instruments (Pages 69–80) $\leftarrow$ **包含第 73 页（Gold Page）**
+     - 3.3 Tax Reconciliation (Pages 81–85)
+   - **Part 4: Appendices & Regulatory Filings** (Pages 86–100)
+     - 4.1 Subsidiary List (Pages 86–100)
+3. 在第 `gold_page`（默认第 73 页，位于 3.2 节 `[69, 80]` 共 12 页区间内）右下角绘制 3×2 极小字号（5pt）核验表格，写入目标码 `gold_code`（`"ZD-9042-M3"`），在其他章节各放一个干扰表格（内容为 `"ZD-0000-XX"`）。
+
+#### 12.3.2 自动化验收测试套件（`tests/test_milestone3.py`）
+
+必须包含以下 6 项硬性验收测试（全部使用 `FakeVLM`，离线毫秒级运行）：
+
+1. **`test_m3_t1_tree_builder_with_toc_and_large_node_split`**：
+   - 用 `create_synthetic_long_pdf` 生成 100 页 PDF，验证 `build_document_tree`：
+   - 断言 `tree.total_pages == 100`；
+   - 断言所有叶子节点满足 `1 <= leaf.page_span <= 20`；
+   - 构造一个无 TOC 的 55 页 PDF，验证启发式/兜底切分后所有叶子节点同样满足 `leaf.page_span <= 20`，且全树叶子页码并集完整覆盖 `1..55`。
+2. **`test_m3_t2_100_page_e2e_navigation_and_zoom`（100 页端到端主用例）**：
+   - 100 页合成 PDF（金标在第 73 页，属于 3.2 节 `[69..80]`，共 12 页）。
+   - `FakeVLM` 脚本：
+     1. Navigator Step 1：`{"action": "expand", "reason": "Financial statements in Part 3", "node_ids": ["<Part 3 node_id>"]}`；
+     2. Navigator Step 2：`{"action": "select", "reason": "Section 3.2 covers derivative instruments", "node_ids": ["<Section 3.2 node_id>"]}`；
+     3. Seeker（收到 3.2 节的 12 页缩略图 `69..80`，第 73 页对应索引 `4`）：`{"reason": "Page 73 has table", "summary": "Table found", "choice": [4]}`；
+     4. Inspector Step 1（收到第 73 页 view 图）：`{"action": "zoom", "reason": "Small table", "image": 0, "bbox_2d": [638, 831, 940, 926], "target": "serial code"}`；
+     5. Inspector Step 2（收到第 73 页 + 高清 crop）：`{"action": "answer", "reason": "Read code", "answer": "ZD-9042-M3", "confidence": 0.95, "reference": [0, 1]}`。
+   - **刚性断言**：
+     - `result.status == "answered"` 且 `result.answer == "ZD-9042-M3"` 且 `73 in result.reference_pages`；
+     - **候选页数硬上限断言**：流入 Seeker 的候选页列表长度 `len(seeker_step.input_images) == 12 <= 20`；
+     - **按需渲染断言**：`len(state.pages) == 12`（100 页 PDF 中仅渲染了 3.2 节的 12 页，其余 88 页未触发 PNG 渲染）；
+     - **双子图隔离断言**：`supervisor_state.json` 中不含 `data:image`、`base64,`、`/sub/`，且 `SupervisorState.model_fields` 与 `NavigatorSubState` / `InspectorSubState` 私有字段（`current_frontier`, `crops`, `view` 等）完全正交；
+     - 主图 `history` 节点序列为 `["ingest", "tree_builder", "navigator", "seeker", "inspector", "critic"]`。
+3. **`test_m3_t3_tree_backtracking_on_seeker_miss_or_need_more_pages`（跨章树回溯测试）**：
+   - 验证当第 1 轮 Navigator 选错章节（例如选了 1.1 节 `1..12` 页），Seeker 检视后返回选中 `[0]`、Inspector 返回 `action="seek"`（`need_more_pages`）且候选池耗尽（或 Seeker 直接返回 `choice=[]`）时：
+   - `decide_next` 触发 **R4 / R7b 树回溯**，再次路由至 `navigator`（`nav_rounds == 2`）；
+   - 第 2 轮 Navigator 的输入中自动排除了 `visited_node_ids`（1.1 节不再重复选中），并携带 `feedback` 选中正确的 3.2 节（`69..80` 页），最终命中第 73 页完成作答！
+4. **`test_m3_t4_candidate_pages_hard_cap_20`（多节点选择截断测试）**：
+   - 当 Navigator 一次性 `select` 了多个叶子节点（例如总页数达 35 页）时，`collect_candidate_pages` 与 `NavigatorReport` 必须将单轮输出的 `candidate_pages` 严格截断至 `<= 20` 页，未纳入的节点保留在未访问池中供下一轮回溯。
+5. **`test_m3_t5_section_recall_benchmark_10_queries`（章节召回率 $\ge 90\%$ 基准验证）**：
+   - 在 100 页多章节合成文档上构造 10 个不同章节的测试 Query（黄金页分布在 `p5, p18, p32, p47, p60, p73, p82, p91` 等 10 个位置），验证树导航 + Seeker 链路对黄金参考页的章节召回率（`gold_page in candidate_pages` 且 `gold_page in selected_pages`）达到 $10/10 = 100\% \ge 90\%$，且每次 Seeker 调用的输入页数全部 $\le 20$。
+6. **`test_m3_t6_m1_m2_zero_regression`**：
+   - 全量运行 `pytest -q`，确保 M1/M2/M2.5 原有 45 项测试 + M3 新增测试 100% 通过。

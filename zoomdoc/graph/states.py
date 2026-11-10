@@ -10,6 +10,8 @@ from zoomdoc.agents.inspector import InspectorView
 from zoomdoc.schemas import (
     CitedRegion,
     CropAsset,
+    DocTreeNode,
+    DocumentTree,
     FinalResultM2,
     InspectorOutputM2,
     InspectorZoom,
@@ -118,6 +120,29 @@ class CriticVerdict(BaseModel):
     detail: str
 
 
+class NavigatorReport(BaseModel):
+    """Navigator 子图向主图返回的唯一路由报告契约。extra='forbid'，严禁包含图像数据。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    nav_round: int = Field(ge=1)
+    status: Literal["located", "exhausted", "budget_exhausted"]
+    selected_node_ids: list[str]
+    candidate_pages: list[int]  # 1-based 升序去重页码列表，长度严格 <= max_pages (20)
+    reason: str  # 路由选择理由
+    sub_steps: int
+    usage: UsageTotals
+
+    @model_validator(mode="after")
+    def _check_leak_and_bounds(self) -> "NavigatorReport":
+        _assert_no_image_payload(self.model_dump())
+        if len(self.candidate_pages) > 20:
+            raise ValueError(
+                f"NavigatorReport candidate_pages count {len(self.candidate_pages)} exceeds hard limit 20"
+            )
+        return self
+
+
 class SupervisorState(BaseModel):
     """主图全局状态：全文本与页资产路径，绝不包含任何高分辨率裁剪图或 base64。"""
 
@@ -127,20 +152,57 @@ class SupervisorState(BaseModel):
     question: str
     pdf_path: str
     run_dir: str
+    total_pages: int = 0
+    doc_tree: DocumentTree | None = None
     pages: dict[int, PageAsset] = Field(default_factory=dict)
     candidate_pages: list[int] = Field(default_factory=list)
     selected_pages: list[int] = Field(default_factory=list)
     feedback: str | None = None
     evidence: Annotated[list[EvidenceReport], operator.add] = Field(default_factory=list)
+    nav_reports: Annotated[list[NavigatorReport], operator.add] = Field(default_factory=list)
+    visited_node_ids: list[str] = Field(default_factory=list)
     verdict: CriticVerdict | None = None
     seek_rounds: int = 0
     inspect_rounds: int = 0
+    nav_rounds: int = 0
     step: int = 0
-    next: Literal["seeker", "inspector", "critic", "synthesizer", "finalize"] | None = None
+    next: (
+        Literal[
+            "tree_builder",
+            "navigator",
+            "seeker",
+            "inspector",
+            "critic",
+            "synthesizer",
+            "finalize",
+        ]
+        | None
+    ) = None
     final_answer: str | None = None
     result: FinalResultM2 | None = None
     usage: Annotated[UsageTotals, merge_usage] = Field(default_factory=UsageTotals)
     history: Annotated[list[StepRecord], operator.add] = Field(default_factory=list)
+
+
+class NavigatorSubState(BaseModel):
+    """Navigator 子图私有状态：自顶向下或全局检索文档树，生命周期仅限单次 invoke。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    trace_id: str
+    question: str
+    nav_round: int = Field(ge=1)
+    doc_tree: DocumentTree
+    visited_node_ids: list[str] = Field(default_factory=list)
+    feedback: str | None = None
+    current_frontier: list[str] = Field(default_factory=list)
+    selected_node_ids: list[str] = Field(default_factory=list)
+    last_reason: str = ""
+    sub_step: int = 0
+    max_nav_steps: int = 4
+    max_candidate_pages: int = 20
+    usage: UsageTotals = Field(default_factory=UsageTotals)
+    report: NavigatorReport | None = None
 
 
 class InspectorSubState(BaseModel):

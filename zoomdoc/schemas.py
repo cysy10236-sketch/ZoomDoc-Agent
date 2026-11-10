@@ -146,6 +146,8 @@ class StepRecord(BaseModel):
         "supervisor",
         "ingest",
         "pack_report",
+        "tree_builder",
+        "navigator",
     ]
     input_images: list[str]  # 路径
     output: dict  # 校验后对象的 model_dump()
@@ -175,3 +177,66 @@ class FinalResultM2(BaseModel):
     seek_rounds: int
     usage: UsageTotals
     trace_id: str
+
+
+# ---------- Milestone 3: 树索引与导航模型 ----------
+class DocTreeNode(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    node_id: str
+    structure: str
+    title: str
+    level: int = Field(ge=1)
+    start_page: int = Field(ge=1)
+    end_page: int = Field(ge=1)
+    summary: str = ""
+    children: list["DocTreeNode"] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _validate_span(self) -> "DocTreeNode":
+        if self.end_page < self.start_page:
+            raise ValueError(f"Invalid page span [{self.start_page}, {self.end_page}] in node {self.node_id}")
+        return self
+
+    @property
+    def page_span(self) -> int:
+        return self.end_page - self.start_page + 1
+
+
+class DocumentTree(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    doc_id: str
+    total_pages: int = Field(ge=1)
+    max_leaf_pages: int = Field(default=20, ge=1, le=20)
+    roots: list[DocTreeNode] = Field(default_factory=list)
+
+
+class NavigatorExpand(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["expand"]
+    reason: str
+    node_ids: list[str] = Field(min_length=1)
+
+
+class NavigatorSelect(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["select"]
+    reason: str
+    node_ids: list[str] = Field(min_length=1)
+
+
+NavigatorOutput = Annotated[
+    Union[NavigatorExpand, NavigatorSelect],
+    Field(discriminator="action"),
+]
+
+
+class FinalResultM3(FinalResultM2):
+    """继承 FinalResultM2，新增树导航统计字段。"""
+
+    nav_rounds: int = 0
+    selected_node_ids: list[str] = Field(default_factory=list)
+    total_pages: int = 0

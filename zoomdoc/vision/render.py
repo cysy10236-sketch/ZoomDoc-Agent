@@ -35,54 +35,70 @@ def resize_long_side(img: Image.Image, long_side: int) -> Image.Image:
     return img.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
 
-def render_pdf(pdf_path: str, out_dir: str, settings: Settings) -> list[PageAsset]:
-    """Render PDF pages at source DPI, plus view and thumbnail downscaled variants.
-
-    Idempotent: skips page rendering if files already exist.
-    Raises ValueError if total pages > settings.max_pages.
-    """
+def get_pdf_page_count(pdf_path: str) -> int:
+    """Return total page count of a PDF using PyMuPDF and close immediately."""
     doc = fitz.open(pdf_path)
-    total_pages = len(doc)
-    if total_pages > settings.max_pages:
-        doc.close()
+    count = len(doc)
+    doc.close()
+    return count
+
+
+def render_pdf_pages(
+    pdf_path: str,
+    page_numbers: list[int],
+    out_dir: str,
+    settings: Settings,
+) -> dict[int, PageAsset]:
+    """On-demand render specified 1-based physical pages.
+
+    Preconditions:
+    - len(page_numbers) <= settings.max_pages
+    - each p in [1, total_pages]
+    Raises ValueError on violation.
+    """
+    unique_pages = sorted(list(set(page_numbers)))
+    if len(unique_pages) > settings.max_pages:
         raise ValueError(
-            f"M1 supports <= {settings.max_pages} pages, but PDF has {total_pages} pages."
+            f"Requested {len(unique_pages)} pages exceeds max_pages={settings.max_pages}."
         )
 
-    if total_pages == 0:
-        doc.close()
-        return []
+    if not unique_pages:
+        return {}
+
+    doc = fitz.open(pdf_path)
+    total_pages = len(doc)
+    for p in unique_pages:
+        if not (1 <= p <= total_pages):
+            doc.close()
+            raise ValueError(f"Invalid page {p}, document has {total_pages} pages.")
 
     doc_hash = sha256_file(pdf_path)
     assets_dir = Path(out_dir) / "assets" / doc_hash[:16]
     assets_dir.mkdir(parents=True, exist_ok=True)
 
-    results: list[PageAsset] = []
+    results: dict[int, PageAsset] = {}
     matrix = fitz.Matrix(settings.source_dpi / 72.0, settings.source_dpi / 72.0)
 
-    for i in range(total_pages):
-        page_num = i + 1  # 1-based physical page index
+    for page_num in unique_pages:
         source_path = assets_dir / f"p{page_num:03d}_source.png"
         view_path = assets_dir / f"p{page_num:03d}_view.png"
         thumb_path = assets_dir / f"p{page_num:03d}_thumb.png"
 
         if source_path.exists() and view_path.exists() and thumb_path.exists():
             with Image.open(source_path) as s_img, Image.open(view_path) as v_img, Image.open(thumb_path) as t_img:
-                results.append(
-                    PageAsset(
-                        page=page_num,
-                        source_path=str(source_path.resolve()),
-                        view_path=str(view_path.resolve()),
-                        thumb_path=str(thumb_path.resolve()),
-                        source_size=s_img.size,
-                        view_size=v_img.size,
-                        thumb_size=t_img.size,
-                    )
+                results[page_num] = PageAsset(
+                    page=page_num,
+                    source_path=str(source_path.resolve()),
+                    view_path=str(view_path.resolve()),
+                    thumb_path=str(thumb_path.resolve()),
+                    source_size=s_img.size,
+                    view_size=v_img.size,
+                    thumb_size=t_img.size,
                 )
             continue
 
-        # Render page via PyMuPDF
-        page = doc.load_page(i)
+        # Render page via PyMuPDF (0-based page index)
+        page = doc.load_page(page_num - 1)
         pix = page.get_pixmap(matrix=matrix, alpha=False)
         source_img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
 
@@ -93,17 +109,39 @@ def render_pdf(pdf_path: str, out_dir: str, settings: Settings) -> list[PageAsse
         view_img.save(view_path, format="PNG")
         thumb_img.save(thumb_path, format="PNG")
 
-        results.append(
-            PageAsset(
-                page=page_num,
-                source_path=str(source_path.resolve()),
-                view_path=str(view_path.resolve()),
-                thumb_path=str(thumb_path.resolve()),
-                source_size=source_img.size,
-                view_size=view_img.size,
-                thumb_size=thumb_img.size,
-            )
+        results[page_num] = PageAsset(
+            page=page_num,
+            source_path=str(source_path.resolve()),
+            view_path=str(view_path.resolve()),
+            thumb_path=str(thumb_path.resolve()),
+            source_size=source_img.size,
+            view_size=view_img.size,
+            thumb_size=thumb_img.size,
         )
 
     doc.close()
     return results
+
+
+def render_pdf(pdf_path: str, out_dir: str, settings: Settings) -> list[PageAsset]:
+    """Render PDF pages at source DPI, plus view and thumbnail downscaled variants.
+
+    Idempotent: skips page rendering if files already exist.
+    Raises ValueError if total pages > settings.max_pages.
+    """
+    total_pages = get_pdf_page_count(pdf_path)
+    if total_pages > settings.max_pages:
+        raise ValueError(
+            f"M1 supports <= {settings.max_pages} pages, but PDF has {total_pages} pages."
+        )
+
+    if total_pages == 0:
+        return []
+
+    pages_dict = render_pdf_pages(
+        pdf_path=pdf_path,
+        page_numbers=list(range(1, total_pages + 1)),
+        out_dir=out_dir,
+        settings=settings,
+    )
+    return [pages_dict[p] for p in sorted(pages_dict.keys())]

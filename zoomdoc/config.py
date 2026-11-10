@@ -45,6 +45,12 @@ class Settings(BaseSettings):
     critic_min_confidence: float = Field(0.6, ge=0.0, le=1.0)
     keep_sub_artifacts: bool = True
 
+    # Milestone 3 parameters
+    max_leaf_pages: int = Field(20, ge=1, le=20)
+    max_nav_rounds: int = Field(3, ge=1)
+    max_nav_steps: int = Field(4, ge=1)
+    use_tree_index: bool = False
+
     runs_dir: str = "runs"
 
 

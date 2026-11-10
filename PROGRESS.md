@@ -239,3 +239,71 @@
    - G2 准确率达到 **91.7%**，成功捕获并纠正了 G1 中未裁或误读的 `case_007` 与 `case_011`；
    - 证明基于状态机的主从 Sub-Agent 与 Critic 判定具备极强的容错与纠偏闭环能力。
 
+
+
+# Milestone 3 施工进度清单（PageIndex 无向量层级树 + Navigator 子图）
+
+- [x] Step 1: 扩展核心数据契约与系统配置
+  - [x] `zoomdoc/schemas.py`: 新增 `DocTreeNode`, `DocumentTree`, `NavigatorExpand`, `NavigatorSelect`, `NavigatorOutput`, `FinalResultM3`；扩展 `StepRecord.node` Literal 支持 `"tree_builder"`, `"navigator"`
+  - [x] `zoomdoc/config.py`: 新增 `max_leaf_pages`, `max_nav_rounds`, `max_nav_steps`, `use_tree_index`
+  - [x] `.env.example`: 同步 M3 超参数与默认配置
+- [x] Step 2: 页面渲染引擎按需化改造（On-Demand Lazy Rendering）
+  - [x] `zoomdoc/vision/render.py`: 实现 `get_pdf_page_count(pdf_path)` 与 `render_pdf_pages(pdf_path, page_numbers, ...)`
+  - [x] `zoomdoc/vision/render.py`: 重构 `render_pdf` 保持原有向后兼容签名与异常抛出契约
+  - [x] 验证单元测试通过（8/8 PASSED）
+- [x] Step 3: 无向量层级树索引构建与大节点拆分算法
+  - [x] `zoomdoc/index/__init__.py` 与 `zoomdoc/index/tree.py`: 实现原生 TOC 解析、启发式标题扫描与均匀分块兜底
+  - [x] 继承 PageIndex 大节点拆分算法：保证所有叶子节点跨度严格 $\le 20$ 页，并自动补充 Intro 节点
+  - [x] 实现 `sanitize_summary_text`（注入模式脱敏与图像路径防泄漏清洗）
+  - [x] 实现 `flatten_tree_nodes`, `get_leaf_nodes`, `collect_candidate_pages`（严格 $\le 20$ 页截断）, `format_tree_outline`
+- [x] Step 4: 提示词工程与纯文本 Navigator Agent
+  - [x] `zoomdoc/prompts.py`: 新增 `NAVIGATOR_PROMPT_TEMPLATE`（支持大纲展示与 `feedback` 注入）
+  - [x] `zoomdoc/agents/navigator.py`: 实现纯文本 `Navigator` Agent 与严格模式校验
+- [x] Step 5: Navigator 子图状态机与双向上下文隔离
+  - [x] `zoomdoc/graph/states.py`: 新增 `NavigatorReport`（防泄漏与 $\le 20$ 页校验）, `NavigatorSubState`, 扩展 `SupervisorState`
+  - [x] `zoomdoc/graph/navigator_subgraph.py`: 实现 `nav_prepare_node`, `nav_step_node`, `route_nav`, `nav_pack_report_node`, `build_navigator_subgraph`, `run_navigator_round`
+- [x] Step 6: 主图 Supervisor 状态机与双子图路由升级
+  - [x] `zoomdoc/graph/supervisor.py`: 实现 `tree_builder_node`, `navigator_subgraph_node`
+  - [x] `zoomdoc/graph/supervisor.py`: 升级 `ingest_node`（短文档保持 M2 兼容，长文档按需惰性渲染）
+  - [x] `zoomdoc/graph/supervisor.py`: 升级 `seeker_node`（支持按需渲染未加载候选页）
+  - [x] `zoomdoc/graph/supervisor.py`: 升级 `decide_next`（实现 R0–R8，支持 R1.5 树构建与 R4 / R7b 跨章树回溯）
+  - [x] `zoomdoc/graph/supervisor.py`: 实现 `run_m3` 入口函数
+- [x] Step 7: 合成长文档生成器、命令行入口与验收测试套件
+  - [x] `scripts/make_synthetic_long_pdf.py`: 生成 100 页带 3 级原生目录、跨页章节、干扰表格与 4pt 极小字标的合成 PDF
+  - [x] `scripts/run_m3.py`: 命令行执行入口
+  - [x] `tests/test_milestone3.py`: 实现 6 项核心验收用例（T1–T6）：
+    - T1: 原生 TOC 树构建与无 TOC 55 页连续覆盖及大节点自动拆分（全部叶子 $\le 20$ 页）
+    - T2: 100 页长文档端到端检索与主动视觉放大（Seeker 严格 12 页 $\le 20$，惰性按需渲染仅渲染 12 页，双子图严格隔离）
+    - T3: 跨章节树回溯与动态重新路由（R7b 机制）
+    - T4: 候选页数多节点选择硬上限 $\le 20$ 截断
+    - T5: 10 个跨章节 Query 章节召回率达到 100%（$\ge 90\%$ 基准达成）
+    - T6: M1/M2 零回归验证（4 页短文档不进树索引，历史序列严格对齐）
+- [x] Step 8: 全量自动化回归验证与交付
+  - [x] `python -m compileall -q zoomdoc scripts tests` (Exit code 0)
+  - [x] `python -m pytest -q` (51 passed in 17.68s, Exit code 0)
+
+## Milestone 3 交付报告
+
+### 1. 语法检查与全量单元测试
+- 语法检查：`python -m compileall -q zoomdoc scripts tests`（退出码 **0**）
+- 全量测试：`python -m pytest -q`（全部 **51 项通过**，用时 **17.68s**）
+```
+...................................................                      [100%]
+51 passed in 17.68s
+```
+
+### 2. 核心架构与物理指标达成情况
+1. **解除 20 页硬上限，支撑 100+ 页长文档**：
+   - 100 页长文档在 `ingest` 阶段不执行全量预渲染，零 I/O 阻塞；
+   - 经 `Navigator` 纯文本层级导航后，单次流入 `Seeker` 的候选页数严格截断至 **$\le 20$ 页**（T2 实测为 12 页）；
+   - **惰性按需渲染（Lazy Rendering）实测断言**：全书 100 页中仅按需渲染了目标章节的 12 页（`len(state.pages) == 12`），其余 88 页零图像生成与零显存/内存开销。
+2. **两级上下文隔离与正交性**：
+   - `NavigatorSubState` 与 `InspectorSubState` 均在独立函数调用生命周期内销毁；
+   - `supervisor_state.json` 与内存状态经断言核验，**0 次出现** `data:image`、`base64,`、`/sub/`；
+   - `SupervisorState` 字段集与子图专用字段集交集为 **$\emptyset$**；
+   - 主图 `history` 保持扁平高阶语义拓扑：`["ingest", "tree_builder", "navigator", "seeker", "inspector", "critic"]`。
+3. **跨章节树回溯闭环（Tree Backtracking）**：
+   - 当 Seeker/Inspector 判定误选章节（`need_more_pages` 且候选池耗尽）时，通过 R7b 自动回溯至 `navigator`（`nav_rounds` 递增），并将已访问节点排除，携带 `feedback` 重新选定正确章节完成作答。
+4. **章节召回率与零回归**：
+   - 10 个跨章节测试 Query 章节召回率达到 **100%**（$\ge 90\%$ 基准达成）；
+   - M1/M2/M2.5 已有的 45 个测试保持 **100% 零修改通过**。

@@ -199,3 +199,32 @@ def label_crop(idx: int, crop: CropAsset) -> str:
         f"[{round(b.x1 * 1000)}, {round(b.y1 * 1000)}, {round(b.x2 * 1000)}, {round(b.y2 * 1000)}] "
         f"(x_min, y_min, x_max, y_max in 0-1000 page coordinates). Requested to read: {crop.target}."
     )
+
+
+NAVIGATOR_PROMPT_TEMPLATE = """You are a document navigation agent. You are given a user question and a hierarchical outline of sections from a long document. Each node shows its `node_id`, `structure`, `title`, page range `[start_page-end_page]`, whether it has child subsections (`has_children`), and a short text preview (`summary`).
+
+## Task
+Choose ONE action to locate the sections most likely to answer the question:
+- "expand": if one or more parent nodes (`has_children=True`) look relevant and you want to inspect their child subsections before deciding.
+- "select": if you have identified the specific leaf sections (or small sections) whose pages should be visually inspected.
+
+## Question
+{question}
+{feedback}
+## Available Outline Nodes (Unvisited)
+{outline_block}
+
+## Response Format (JSON only, one of the following)
+A. {
+    "action": "expand",
+    "reason": "Explain which parent sections may contain the target information",
+    "node_ids": ["<node_id>", ...]
+}
+B. {
+    "action": "select",
+    "reason": "Explain why these specific sections are selected for visual inspection",
+    "node_ids": ["<node_id>", ...]
+}
+
+Return JSON only.
+"""
