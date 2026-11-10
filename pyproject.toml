@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zoomdoc-agent"
+version = "0.1.0"
+description = "Multi-modal document reasoning agent with coarse-to-fine visual routing and tree indexing"
+readme = "ARCHITECTURE_AND_PLAN.md"
+requires-python = ">=3.11"
+dependencies = [
+    "langgraph",
+    "pydantic",
+    "pydantic-settings",
+    "pymupdf",
+    "pillow",
+    "openai",
+    "python-dotenv",
+    "pytest",
+]
+
+[tool.setuptools.packages.find]
+include = ["zoomdoc*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+pythonpath = ["."]
