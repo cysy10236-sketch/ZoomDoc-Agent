@@ -156,6 +156,22 @@ def pack_report_node(state: InspectorSubState) -> dict[str, Any]:
     ref_pages: list[int] = []
     cited_regions: list[CitedRegion] = []
 
+    if state.sub_step >= state.max_sub_steps and not isinstance(last, InspectorAnswerM2):
+        report = EvidenceReport(
+            round=state.round,
+            status="budget_exhausted",
+            answer=None,
+            confidence=None,
+            reason=f"Sub-step budget exhausted ({state.sub_step} >= {state.max_sub_steps})",
+            seek_hint=None,
+            reference_pages=[],
+            cited_regions=[],
+            zoom_count=state.zoom_count,
+            sub_steps=state.sub_step,
+            usage=state.usage,
+        )
+        return {"report": report}
+
     if isinstance(last, InspectorAnswerM2):
         if state.view is not None:
             for r in last.reference:

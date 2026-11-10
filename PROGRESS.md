@@ -110,3 +110,16 @@
     .................................                                        [100%]
     33 passed in 4.79s
     ```
+- [x] Step 7: `tests/test_milestone2.py` 端到端验收测试（A1–A7）
+  - [x] A1: 两次裁剪与嵌套放大的上下文隔离主用例（零图像路径/Base64 泄漏、字段正交断言）
+  - [x] A2: 置信度不足（`low_confidence`）由 Critic 拦截并注入 Feedback 触发 r2 重裁
+  - [x] A3: 子图步数耗尽（`sub_step >= max_sub_steps`）安全退出
+  - [x] A4: `seek` 反馈回环触发 Seeker 二次粗筛
+  - [x] A5: 格式错误重试的 Token 全量累计（修复 D1 缺陷回归）
+  - [x] A6: `EvidenceReport` 防泄漏校验拦截
+  - [x] A7: 纯文本 Synthesizer 兜底回环测试与 M1 零回归断言
+  - [x] Pytest 验证输出（40/40 PASSED）：
+    ```
+    ........................................                                 [100%]
+    40 passed in 8.15s
+    ```
