@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import operator
+import re
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -19,12 +20,22 @@ from zoomdoc.schemas import (
 )
 
 
+_IMAGE_PATH_PATTERN = re.compile(
+    r"(?:[/\\]|[a-zA-Z]:[/\\]|crops[/\\]|pages[/\\])[\w\-\./\\]*\.(?:png|jpe?g|webp|bmp)",
+    re.IGNORECASE,
+)
+
+
 def _assert_no_image_payload(data: Any, path: str = "") -> None:
-    forbidden = ["data:image", "base64,", ".png", ".jpg", ".jpeg"]
     if isinstance(data, str):
-        for pattern in forbidden:
-            if pattern in data:
-                raise ValueError(f"image payload leaked in field '{path}': found '{pattern}'")
+        lower = data.lower()
+        if "data:image" in lower:
+            raise ValueError(f"image payload leaked in field '{path}': found 'data:image'")
+        if "base64," in lower:
+            raise ValueError(f"image payload leaked in field '{path}': found 'base64,'")
+        matched = _IMAGE_PATH_PATTERN.search(data)
+        if matched:
+            raise ValueError(f"image payload leaked in field '{path}': found image path '{matched.group(0)}'")
     elif isinstance(data, dict):
         for k, v in data.items():
             _assert_no_image_payload(v, f"{path}.{k}" if path else str(k))

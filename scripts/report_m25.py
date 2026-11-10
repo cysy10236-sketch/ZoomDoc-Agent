@@ -190,6 +190,10 @@ def generate_report(
     g1_records = load_group_results(r_dir, "G1")
     g2_records = load_group_results(r_dir, "G2")
 
+    all_records = g0_records + g1_records + g2_records
+    recorded_models = [r["vlm_model"] for r in all_records if r.get("vlm_model")]
+    actual_model = recorded_models[0] if recorded_models else vlm_model
+
     stats_g0 = analyze_group(g0_records)
     stats_g1 = analyze_group(g1_records)
     stats_g2 = analyze_group(g2_records)
@@ -198,9 +202,9 @@ def generate_report(
     b_g1, c_g1, p_mcnemar_g1_g0 = compute_mcnemar(g1_records, g0_records)
     b_g2, c_g2, p_mcnemar_g2_g1 = compute_mcnemar(g2_records, g1_records)
 
-    # Confidence bin analysis across G1 and G2
-    g12_records = g1_records + g2_records
-    conf_bins, r_pb = analyze_confidence_bins(g12_records)
+    # Confidence bin analysis: use G1 (unbiased single-round baseline without Critic survival bias)
+    eval_conf_records = g1_records if g1_records else (g1_records + g2_records)
+    conf_bins, r_pb = analyze_confidence_bins(eval_conf_records)
 
     # Bad cases export
     bad_cases_path = o_dir / "bad_cases.jsonl"
@@ -244,7 +248,7 @@ def generate_report(
         f"## DECISION: {decision}",
         "",
         f"> **后续动作**：{action}",
-        f"> **评测环境**：Model Snapshot=`{vlm_model}`, `requirements.lock` sha256=`{lock_sha}`",
+        f"> **评测环境**：Model Snapshot=`{actual_model}`, `requirements.lock` sha256=`{lock_sha}`",
         "",
         "### 1. 组别消融综合对比 (G0 vs G1 vs G2)",
         "",

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 
 class NormBBox(BaseModel):
@@ -99,6 +99,17 @@ class SynthesizerOutput(BaseModel):
     reason: str
     answer: str
     reference: list[int] = Field(default_factory=list)
+
+
+class SynthesizerTextOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str
+    answer: str
+    reference_pages: list[int] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("reference_pages", "reference"),
+    )
 
 
 # ---------- 计量与坐标契约（供主图与子图共享，避免循环导入） ----------

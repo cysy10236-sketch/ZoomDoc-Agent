@@ -29,6 +29,7 @@ from zoomdoc.schemas import (
     FinalResultM2,
     StepRecord,
     SynthesizerOutput,
+    SynthesizerTextOutput,
     VLMUsage,
 )
 from zoomdoc.vision.render import render_pdf
@@ -257,7 +258,7 @@ def synthesizer_text_node(
     obj, resp, attempts = call_with_schema(
         vlm,
         parts,
-        TypeAdapter(SynthesizerOutput),
+        TypeAdapter(SynthesizerTextOutput),
         agent="synthesizer",
         max_attempts=settings.max_attempts,
         logger=logger,
@@ -273,7 +274,7 @@ def synthesizer_text_node(
         status="synthesized",
         answer=obj.answer,
         reason=obj.reason,
-        reference_pages=sorted(list(set(obj.reference))),
+        reference_pages=sorted(list(set(obj.reference_pages))),
         cited_regions=all_cited,
         inspect_rounds=state.inspect_rounds,
         seek_rounds=state.seek_rounds,

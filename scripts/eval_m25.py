@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import traceback
 from pathlib import Path
 from typing import Any
 
@@ -82,6 +81,7 @@ def run_eval_case(
     status = "error"
     pred_answer: str | None = None
     confidence: float | None = None
+    confidences: list[float] = []
     ref_pages: list[int] = []
     cited_regions_count = 0
     zoom_count = 0
@@ -100,23 +100,21 @@ def run_eval_case(
         pred_answer = result.answer
         ref_pages = result.reference_pages
         cited_regions_count = len(result.cited_regions)
-        zoom_count = sum(1 for c in result.cited_regions if c.page_box is not None)
         usage_dict = result.usage.model_dump()
         if state.evidence:
+            zoom_count = sum(e.zoom_count for e in state.evidence)
+            confidences = [e.confidence for e in state.evidence if e.confidence is not None]
             confidence = state.evidence[-1].confidence
 
     except (ZoomDocError, APIError) as exc:
         error_msg = f"{type(exc).__name__}: {str(exc)}"
-        print(f"[{group}][{case_id}] Handled Error: {error_msg}")
-    except Exception as exc:  # Catch unexpected for logging in eval batch
-        error_msg = f"Unexpected {type(exc).__name__}: {str(exc)}\n{traceback.format_exc()}"
-        print(f"[{group}][{case_id}] Unexpected Failure: {error_msg}")
 
     correct = is_answer_correct(pred_answer, gold) if status in ("answered", "synthesized") else False
 
     record = {
         "case_id": case_id,
         "group": group,
+        "vlm_model": settings.vlm_model,
         "gold": gold,
         "gold_page": case["gold_page"],
         "font_pt": case["font_pt"],
@@ -129,6 +127,7 @@ def run_eval_case(
         "zoom_count": zoom_count,
         "is_zoomed": zoom_count > 0,
         "confidence": confidence,
+        "confidences": confidences,
         "usage": usage_dict,
         "error": error_msg,
         "trace_id": trace_id,

@@ -38,8 +38,11 @@ if TYPE_CHECKING:
 
 def prepare_node(state: InspectorSubState, settings: Settings) -> dict[str, Any]:
     """Construct multi-image view for Inspector from pages and current crops."""
-    inspector = Inspector(vlm=None, settings=settings, logger=None)  # type: ignore[arg-type]
-    view = inspector.build_view(list(state.pages.values()), list(state.crops.values()))
+    view = Inspector.build_view_items(
+        list(state.pages.values()),
+        list(state.crops.values()),
+        settings.max_inspector_images,
+    )
     return {"view": view}
 
 

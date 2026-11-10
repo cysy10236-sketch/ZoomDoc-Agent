@@ -90,7 +90,7 @@ def test_eval_pipeline_with_fake_vlm(tmp_path: Path) -> None:
         json.dumps({"action": "answer", "reason": "found", "answer": gold_1, "confidence": 0.9, "reference": [0]}),
         # G0 case 2:
         json.dumps({"reason": "find", "summary": "s", "choice": [gold_page_2 - 1]}),
-        json.dumps({"action": "answer", "reason": "wrong", "answer": "WRONG-CODE", "confidence": 0.4, "reference": [0]}),
+        json.dumps({"action": "answer", "reason": "wrong", "answer": "WRONG-CODE", "confidence": 0.7, "reference": [0]}),
         # G1 case 1:
         json.dumps({"reason": "find", "summary": "s", "choice": [gold_page_1 - 1]}),
         json.dumps({"action": "zoom", "reason": "zoom", "image": 0, "bbox_2d": [100, 100, 500, 500], "target": "code"}),

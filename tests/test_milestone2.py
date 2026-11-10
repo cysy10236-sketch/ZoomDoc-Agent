@@ -404,7 +404,7 @@ def test_a7_synthesizer_text_flow(synthetic_pdf: str, tmp_path: Path) -> None:
         json.dumps({
             "reason": "Synthesized from evidence",
             "answer": "ZD-7319-FINAL",
-            "reference": [3],
+            "reference_pages": [3],
         }),
     ]
 
@@ -425,6 +425,7 @@ def test_a7_synthesizer_text_flow(synthetic_pdf: str, tmp_path: Path) -> None:
 
     assert result.status == "synthesized"
     assert result.answer == "ZD-7319-FINAL"
+    assert result.reference_pages == [3]
     # Synthesizer call was purely text
     synth_call = fake_vlm.calls[2]
     assert len([p for p in synth_call if isinstance(p, ImagePart)]) == 0

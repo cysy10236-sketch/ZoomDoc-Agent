@@ -45,7 +45,12 @@ class Inspector:
         self.logger = logger
         self.adapter = TypeAdapter(InspectorOutput)
 
-    def build_view(self, pages: list[PageAsset], crops: list[CropAsset]) -> InspectorView:
+    @staticmethod
+    def build_view_items(
+        pages: list[PageAsset],
+        crops: list[CropAsset],
+        max_inspector_images: int,
+    ) -> InspectorView:
         """Construct image sequence up to max_inspector_images.
 
         Order: pages (ascending page number) followed by crops (creation order).
@@ -56,7 +61,7 @@ class Inspector:
         crop_items: list[ViewItem] = [("crop", c.crop_id) for c in crops]
 
         total_items = page_items + crop_items
-        max_limit = self.settings.max_inspector_images
+        max_limit = max_inspector_images
 
         while len(total_items) > max_limit:
             # First drop earliest crop if any crop exists
@@ -68,6 +73,9 @@ class Inspector:
                 total_items.pop(-1)
 
         return InspectorView(items=total_items)
+
+    def build_view(self, pages: list[PageAsset], crops: list[CropAsset]) -> InspectorView:
+        return self.build_view_items(pages, crops, self.settings.max_inspector_images)
 
     def run(
         self,
