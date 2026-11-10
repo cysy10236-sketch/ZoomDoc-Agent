@@ -123,3 +123,48 @@
     ........................................                                 [100%]
     40 passed in 8.15s
     ```
+- [x] Step 8: `scripts/run_m2.py` CLI 脚本与 Milestone 2 全量验收交付
+  - [x] 编写 `scripts/run_m2.py` 命令行调用入口
+  - [x] 执行 `python -m compileall -q zoomdoc scripts tests` (Exit code 0)
+  - [x] 执行 `python -m pytest -q` (40 passed in 8.02s, Exit code 0)
+
+## Milestone 2 交付报告
+
+### 1. 语法检查与单元测试退出码
+- `python -m compileall -q zoomdoc scripts tests`: 退出码 **0**
+- `python -m pytest -q` 完整原始输出：
+```
+........................................                                 [100%]
+40 passed in 8.02s
+```
+
+### 2. A1 隔离测试审计数据
+- `tests/test_milestone2.py::test_a1_context_isolation_and_nested_zoom`:
+  - `supervisor_state.json` 文件大小：**7565 字节**
+  - `supervisor_state.json` 中 `data:image`、`base64,`、`/sub/` 出现次数：**0 次**
+  - `trace.jsonl` 中 `namespace == "inspector_sub/r1"` 且 `node == "zoom"` 的事件条数：**2 条**（均记录真实毫秒级耗时）
+
+### 3. 新增 / 修改文件清单与行数
+- **基础与契约层（修改）**：
+  - `zoomdoc/agents/base.py`: 95 行（新增 `usage_sink` 全量计量与 `namespace`）
+  - `zoomdoc/agents/inspector.py`: 143 行（支持 M2 prompt、adapter 与透传）
+  - `zoomdoc/agents/seeker.py`: 94 行（透传 `usage_sink` 与 `namespace`）
+  - `zoomdoc/agents/synthesizer.py`: 81 行（透传 `usage_sink` 与 `namespace`）
+  - `zoomdoc/observability.py`: 86 行（`Span` 真实耗时统计与 base64 泄漏拦截）
+  - `zoomdoc/schemas.py`: 165 行（新增 `UsageTotals`, `CitedRegion`, `InspectorOutputM2`, `FinalResultM2`）
+  - `zoomdoc/config.py`: 53 行（新增 M2 预算与置信度参数）
+  - `zoomdoc/prompts.py`: 201 行（新增 `INSPECTOR_PROMPT_M2`, `SYNTHESIZER_TEXT_PROMPT`, `render_evidence_block`）
+  - `.env.example`: 55 行（同步配置项）
+- **状态机与子图层（新增）**：
+  - `zoomdoc/graph/states.py`: 155 行（`SupervisorState`, `InspectorSubState`, `EvidenceReport`, `CriticVerdict`, reducers）
+  - `zoomdoc/graph/inspector_subgraph.py`: 322 行（子图定义、局部裁剪、`run_inspector_round` 包装）
+  - `zoomdoc/graph/critic.py`: 126 行（6 分支确定性规则评审与节点实现）
+  - `zoomdoc/graph/supervisor.py`: 433 行（主图拓扑、`decide_next` R0–R8、`run_m2` 入口）
+  - `scripts/run_m2.py`: 59 行（CLI 运行脚本）
+- **测试与验证层（新增）**：
+  - `tests/test_langgraph_probe.py`: 105 行（Pydantic reducer 与子图独立 invoke 探针）
+  - `tests/test_m2_units.py`: 384 行（状态防泄漏、reducer、critic 6 分支、decide_next R0–R8 真值表）
+  - `tests/test_milestone2.py`: 421 行（A1–A7 完整验收套件）
+
+### 4. 实施偏离说明
+- **无偏离**：完全严格依照《Milestone 2 施工指导手册》的类名、函数签名、拓扑与隔离规范实现，M1 的 24 个基线测试未改动任何一行且 100% 保持通过。
