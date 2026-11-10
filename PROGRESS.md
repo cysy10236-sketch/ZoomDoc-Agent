@@ -71,3 +71,13 @@
     .........................                                                [100%]
     25 passed in 4.36s
     ```
+- [x] Step 3: `graph/states.py` 状态模型与单元契约测试
+  - [x] 实现 `EvidenceReport`, `CriticVerdict`, `SupervisorState`, `InspectorSubState`
+  - [x] 实现 `merge_usage` 与 `usage_from_sink`
+  - [x] 实现 `EvidenceReport` 防图像/Base64/路径泄漏递归校验器
+  - [x] 编写 `tests/test_m2_units.py` 覆盖 reducer、sink 统计、泄漏拦截与字段断言
+  - [x] Pytest 验证输出（30/30 PASSED）：
+    ```
+    ..............................                                           [100%]
+    30 passed in 4.25s
+    ```
