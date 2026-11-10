@@ -90,3 +90,13 @@
     ...............................                                          [100%]
     31 passed in 4.78s
     ```
+- [x] Step 5: `graph/inspector_subgraph.py` 子图状态机与隔离测试
+  - [x] 实现 `prepare_node`, `inspect_node`, `route_inspect`, `zoom_node`, `pack_report_node`
+  - [x] 实现 `build_inspector_subgraph` 与 `run_inspector_round` 包装函数
+  - [x] 验证子图内部执行 zoom 与嵌套裁剪，并仅返回 `EvidenceReport`
+  - [x] 单元测试 `test_inspector_subgraph_isolated_round` 验证子图独立闭环
+  - [x] Pytest 验证输出（32/32 PASSED）：
+    ```
+    ................................                                         [100%]
+    32 passed in 4.72s
+    ```

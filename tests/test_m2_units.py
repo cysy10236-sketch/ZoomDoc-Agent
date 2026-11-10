@@ -177,3 +177,70 @@ def test_evaluate_report_branches() -> None:
     v_ok = evaluate_report(rep_ok, valid_pages, min_conf)
     assert v_ok.accepted
     assert v_ok.reason_code == "ok"
+
+
+import json
+from pathlib import Path
+from scripts.make_synthetic_pdf import create_synthetic_pdf
+from tests.fake_vlm import FakeVLM
+from zoomdoc.config import Settings
+from zoomdoc.graph.inspector_subgraph import run_inspector_round
+from zoomdoc.observability import TraceLogger
+from zoomdoc.vision.render import render_pdf
+
+
+def test_inspector_subgraph_isolated_round(tmp_path: Path) -> None:
+    pdf_path = tmp_path / "test.pdf"
+    create_synthetic_pdf(str(pdf_path))
+
+    settings = Settings(
+        runs_dir=str(tmp_path),
+        max_zooms=2,
+        max_sub_steps=4,
+        keep_sub_artifacts=True,
+    )
+    pages = render_pdf(str(pdf_path), str(tmp_path), settings)
+    pages_dict = {p.page: p for p in pages if p.page == 3}
+
+    scripted = [
+        json.dumps({
+            "action": "zoom",
+            "reason": "Zoom in on table",
+            "image": 0,
+            "bbox_2d": [638, 831, 940, 926],
+            "target": "serial code",
+        }),
+        json.dumps({
+            "action": "answer",
+            "reason": "Serial code is ZD-7319-QX",
+            "answer": "ZD-7319-QX",
+            "confidence": 0.95,
+            "reference": [0, 1],
+        }),
+    ]
+    fake_vlm = FakeVLM(scripted)
+    logger = TraceLogger(str(tmp_path), "test-trace-sub")
+
+    report = run_inspector_round(
+        question="What is the code?",
+        round_=1,
+        pages=pages_dict,
+        feedback=None,
+        run_dir=str(tmp_path),
+        trace_id="test-trace-sub",
+        vlm=fake_vlm,
+        settings=settings,
+        logger=logger,
+    )
+
+    assert report.status == "answered"
+    assert report.answer == "ZD-7319-QX"
+    assert report.confidence == 0.95
+    assert report.zoom_count == 1
+    assert report.sub_steps == 3
+    assert report.reference_pages == [3]
+    assert len(report.cited_regions) == 2
+    # Crop item has page_box
+    assert report.cited_regions[1].page_box is not None
+    assert report.usage.calls == 2
+    assert report.usage.prompt_tokens == 200
