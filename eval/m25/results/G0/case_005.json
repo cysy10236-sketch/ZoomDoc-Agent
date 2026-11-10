@@ -1,0 +1,31 @@
+{
+  "case_id": "case_005",
+  "group": "G0",
+  "vlm_model": "qwen3.8-flash",
+  "gold": "ZD-2170-MZ",
+  "gold_page": 2,
+  "font_pt": 4,
+  "region": "center",
+  "confusable": false,
+  "status": "answered",
+  "answer": "CD-2170-42",
+  "is_correct": false,
+  "reference_pages": [
+    2
+  ],
+  "zoom_count": 0,
+  "is_zoomed": false,
+  "confidence": 0.95,
+  "confidences": [
+    0.95
+  ],
+  "usage": {
+    "calls": 2,
+    "prompt_tokens": 2474,
+    "completion_tokens": 626,
+    "missing_usage_calls": 0,
+    "latency_ms": 15551.13
+  },
+  "error": null,
+  "trace_id": "m25-G0-case_005"
+}

@@ -1,0 +1,31 @@
+{
+  "case_id": "case_011",
+  "group": "G1",
+  "vlm_model": "qwen3.8-flash",
+  "gold": "ZD-1343-DO",
+  "gold_page": 2,
+  "font_pt": 4,
+  "region": "bottom_right",
+  "confusable": true,
+  "status": "answered",
+  "answer": "ZO-1343-00",
+  "is_correct": false,
+  "reference_pages": [
+    2
+  ],
+  "zoom_count": 1,
+  "is_zoomed": true,
+  "confidence": 0.98,
+  "confidences": [
+    0.98
+  ],
+  "usage": {
+    "calls": 3,
+    "prompt_tokens": 4414,
+    "completion_tokens": 834,
+    "missing_usage_calls": 0,
+    "latency_ms": 81351.01
+  },
+  "error": null,
+  "trace_id": "m25-G1-case_011"
+}

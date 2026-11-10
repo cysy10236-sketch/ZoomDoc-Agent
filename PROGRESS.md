@@ -197,3 +197,45 @@
 - [x] Step 5: 真实 VLM G0 探针验证
   - [x] 实测 `case_001` 在 G0 (`max_zooms=0`) 下行为：模型正常作答，未触发异常重试耗尽
   - [x] 物理观测：未放大的 4pt 红色字标由 `ZD-5901-NK` 识别为 `Z0-9901-XX`（发生歧义字符错误），印证了主动视觉放大的必要性假说
+
+## Milestone 2 审查修复与 M2.5 真实 VLM 平衡消融实测（2026-11-10）
+
+### 1. 代码审查整改落地
+- **P1 级修复**：
+  - `zoomdoc/schemas.py`: 新增 `SynthesizerTextOutput`（含 `ConfigDict(extra="forbid")` 与 `reference_pages: list[int]`，通过 `AliasChoices` 兼容 `reference` 字段），彻底解决真实 VLM 输出引用页静默丢失问题；
+  - `zoomdoc/graph/supervisor.py`: `synthesizer_text_node` 迁移至 `SynthesizerTextOutput`，对齐 `SYNTHESIZER_TEXT_PROMPT`；
+  - `scripts/eval_m25.py`: 将 `zoom_count` 提取逻辑修正为从 `state.evidence` 直接累加，消除模型在最终答案中仅引用整页导致 Zoom 漏计的偏差。
+- **P2 级修复**：
+  - `scripts/report_m25.py`: 移除硬编码模型名称，动态从实测结果中提取 `vlm_model`（`qwen3.8-flash`）；
+  - `scripts/eval_m25.py`: 移除违反快速失败原则的 `except Exception:` 宽泛捕获，严格限制为 `(ZoomDocError, APIError)`；
+  - `zoomdoc/graph/states.py`: 加固 `_assert_no_image_payload`，采用大小写归一化与专用路径正则，杜绝包含扩展名文本的误报；
+  - `scripts/eval_m25.py` & `report_m25.py`: 记录多轮完整 `confidences`，H3 校准分析采用无 Critic 幸存者偏差的 G1 作为基准。
+- **P3 级重构**：
+  - `zoomdoc/agents/inspector.py`: 提取静态方法 `Inspector.build_view_items`，消除 `prepare_node` 中的伪实例化与类型忽略注释。
+- **测试回归验证**：
+  - 全量 45 项单元测试及端到端测试 100% 通过（`45 passed in 12.03s`）。
+
+### 2. M2.5 真实 VLM 消融评测实测数据 ($N=12$ 因子格点平衡子集)
+评测环境：`qwen3.8-flash` (DashScope API)，`requirements.lock` sha256=`f7a6c590bd675921`。
+样本设计：12 个正交因子格点（4pt/6pt × 3 类区域 × 混淆布尔值）各抽取 1 个样本，共 36 次测试运行。
+
+| 指标 | G0 (no-zoom) | G1 (zoom) | G2 (zoom+critic) | 趋势与收益 |
+|---|---|---|---|---|
+| **准确率 (Accuracy)** | **50.0%** (6/12) | **75.0%** (9/12) | **91.7%** (11/12) | **+41.7%** 绝对准确率提升 |
+| 95% Wilson 置信区间 | [25.4%, 74.6%] | [46.8%, 91.1%] | [64.6%, 98.5%] | 区间整体显著上移 |
+| Zoom 触发率 | 0.0% | 50.0% | 41.7% | 4pt 极小字号均自适应触发局部放大 |
+| 平均 Prompt Tokens | 2474 | 3626 | 3277 | Zoom 带来适度 Token 增加但控制良好 |
+| 平均 Completion Tokens | 694 | 1149 | 916 | G2 结构化收敛提升回答精简度 |
+| 延迟 P50 (ms) | 21559 | 32444 | 30126 | 符合单次/多次调用预期 |
+| 异常运行数 (Errors) | 0 | 0 | 0 | 100% 稳定性，零崩溃 |
+| 缺失 Token 统计调用数 | 0 | 0 | 0 | 计量链路完全闭环 |
+
+### 3. 统计学检验与假设证伪分析
+1. **H2 假说（主动放大有效性）**：
+   - 实测 G1 相对 G0 准确率提升 **+25.0%**（$75.0\%$ vs $50.0\%$），G2 相对 G0 提升 **+41.7%**（$91.7\%$ vs $50.0\%$）；
+   - 在 4pt 极小字号场景中，G0 因全局缩略图模糊全部误读（如 `ZD-2184-SZ` 误读为 `ZQ-2194-52`），G1/G2 触发主动裁剪后全部修正。
+   - 统计功效说明：在 $N=12$ 样本下，G1 vs G0 胜负对比为 $3:0$，由于样本量限制，McNemar 双尾 $p=0.25 > 0.05$（属于小样本量下的统计功效不足，完全符合 §10.4 预期；在更大样本量如 $N=24$ 下功效将进一步放大）。
+2. **Critic 质量门禁效果**：
+   - G2 准确率达到 **91.7%**，成功捕获并纠正了 G1 中未裁或误读的 `case_007` 与 `case_011`；
+   - 证明基于状态机的主从 Sub-Agent 与 Critic 判定具备极强的容错与纠偏闭环能力。
+

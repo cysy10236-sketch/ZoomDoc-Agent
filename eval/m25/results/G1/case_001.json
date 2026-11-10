@@ -1,6 +1,7 @@
 {
   "case_id": "case_001",
   "group": "G1",
+  "vlm_model": "qwen3.8-flash",
   "gold": "ZD-5901-NK",
   "gold_page": 3,
   "font_pt": 4,
@@ -14,13 +15,16 @@
   ],
   "zoom_count": 1,
   "is_zoomed": true,
-  "confidence": 0.98,
+  "confidence": 0.97,
+  "confidences": [
+    0.97
+  ],
   "usage": {
     "calls": 3,
-    "prompt_tokens": 4414,
-    "completion_tokens": 920,
+    "prompt_tokens": 4413,
+    "completion_tokens": 1142,
     "missing_usage_calls": 0,
-    "latency_ms": 26552.99
+    "latency_ms": 97782.47
   },
   "error": null,
   "trace_id": "m25-G1-case_001"
