@@ -38,6 +38,13 @@ class Settings(BaseSettings):
     max_inspector_images: int = 6
     max_attempts: int = 3
 
+    # Milestone 2 parameters
+    max_inspect_rounds: int = 2
+    max_seek_rounds: int = 2
+    max_sub_steps: int = 6
+    critic_min_confidence: float = Field(0.6, ge=0.0, le=1.0)
+    keep_sub_artifacts: bool = True
+
     runs_dir: str = "runs"
 
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, Union
+from typing import TYPE_CHECKING, Any, Literal, Union
 
 from pydantic import BaseModel, TypeAdapter
 
@@ -19,6 +19,7 @@ from zoomdoc.schemas import (
     InspectorSeek,
     InspectorZoom,
     PageAsset,
+    VLMUsage,
 )
 from zoomdoc.vision.geometry import vlm_bbox_to_norm
 
@@ -75,7 +76,12 @@ class Inspector:
         pages: dict[int, PageAsset],
         crops: dict[str, CropAsset],
         zoom_left: int,
-    ) -> tuple[InspectorOutput, VLMResponse, int]:
+        usage_sink: list[VLMUsage] | None = None,
+        prompt_template: str | None = None,
+        adapter: TypeAdapter | None = None,
+        namespace: str = "main",
+        feedback: str | None = None,
+    ) -> tuple[Any, VLMResponse, int]:
         n_items = len(view.items)
         assert n_items > 0, "InspectorView cannot be empty"
 
@@ -91,15 +97,19 @@ class Inspector:
                 parts.append(TextPart(text=label_crop(idx, crop_asset)))
                 parts.append(ImagePart(path=crop_asset.path))
 
+        template = prompt_template or INSPECTOR_PROMPT_TEMPLATE
+        feedback_str = f"## Additional Feedback\n{feedback}\n\n" if feedback else ""
+
         prompt_text = (
-            INSPECTOR_PROMPT_TEMPLATE.replace("{question}", question)
+            template.replace("{question}", question)
             .replace("{zoom_left}", str(zoom_left))
             .replace("{max_index}", str(n_items - 1))
             .replace("{bbox_instruction}", bbox_instruction(self.settings.bbox_format))
+            .replace("{feedback}", feedback_str)
         )
         parts.append(TextPart(text=prompt_text))
 
-        def validate(output: InspectorOutput) -> None:
+        def validate(output: Any) -> None:
             if isinstance(output, InspectorAnswer):
                 for ref_idx in output.reference:
                     if not (0 <= ref_idx < n_items):
@@ -116,14 +126,18 @@ class Inspector:
                 # Validate bbox conversion
                 vlm_bbox_to_norm(output.bbox_2d, self.settings.bbox_format)
 
+        target_adapter = adapter or self.adapter
+
         obj, resp, attempts = call_with_schema(
             self.vlm,
             parts,
-            self.adapter,
+            target_adapter,
             agent="inspector",
             max_attempts=self.settings.max_attempts,
             logger=self.logger,
             validate=validate,
+            usage_sink=usage_sink,
+            namespace=namespace,
         )
 
         return (obj, resp, attempts)

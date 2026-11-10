@@ -12,7 +12,7 @@ from zoomdoc.prompts import (
     label_crop,
     label_full_page,
 )
-from zoomdoc.schemas import CropAsset, PageAsset, SynthesizerOutput
+from zoomdoc.schemas import CropAsset, PageAsset, SynthesizerOutput, VLMUsage
 
 if TYPE_CHECKING:
     from zoomdoc.config import Settings
@@ -35,6 +35,8 @@ class Synthesizer:
         view: InspectorView,
         pages: dict[int, PageAsset],
         crops: dict[str, CropAsset],
+        usage_sink: list[VLMUsage] | None = None,
+        namespace: str = "main",
     ) -> tuple[SynthesizerOutput, VLMResponse, int]:
         n_items = len(view.items)
         assert n_items > 0, "Synthesizer view cannot be empty"
@@ -72,6 +74,8 @@ class Synthesizer:
             max_attempts=self.settings.max_attempts,
             logger=self.logger,
             validate=validate,
+            usage_sink=usage_sink,
+            namespace=namespace,
         )
 
         return (obj, resp, attempts)

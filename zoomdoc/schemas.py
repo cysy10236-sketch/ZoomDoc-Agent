@@ -65,6 +65,10 @@ class InspectorAnswer(BaseModel):
     reference: list[int] = Field(min_length=1)  # ViDoRAG vidorag_agents.py:116 要求非空
 
 
+class InspectorAnswerM2(InspectorAnswer):
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
 class InspectorSeek(BaseModel):
     action: Literal["seek"]
     reason: str
@@ -85,11 +89,31 @@ InspectorOutput = Annotated[
     Field(discriminator="action"),
 ]
 
+InspectorOutputM2 = Annotated[
+    Union[InspectorAnswerM2, InspectorSeek, InspectorZoom],
+    Field(discriminator="action"),
+]
+
 
 class SynthesizerOutput(BaseModel):
     reason: str
     answer: str
     reference: list[int] = Field(default_factory=list)
+
+
+# ---------- 计量与坐标契约（供主图与子图共享，避免循环导入） ----------
+class UsageTotals(BaseModel):
+    calls: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    missing_usage_calls: int = 0
+    latency_ms: float = 0.0
+
+
+class CitedRegion(BaseModel):
+    page: int = Field(ge=1)
+    page_box: NormBBox | None = None  # None 表示整页引用
+    target: str | None = None
 
 
 # ---------- 运行记录 ----------
@@ -102,7 +126,16 @@ class VLMUsage(BaseModel):
 
 class StepRecord(BaseModel):
     step: int
-    node: Literal["seeker", "inspector", "zoom", "synthesizer"]
+    node: Literal[
+        "seeker",
+        "inspector",
+        "zoom",
+        "synthesizer",
+        "critic",
+        "supervisor",
+        "ingest",
+        "pack_report",
+    ]
     input_images: list[str]  # 路径
     output: dict  # 校验后对象的 model_dump()
     usage: VLMUsage | None
@@ -118,4 +151,16 @@ class FinalResult(BaseModel):
     steps: int
     total_prompt_tokens: int
     total_completion_tokens: int
+    trace_id: str
+
+
+class FinalResultM2(BaseModel):
+    status: Literal["answered", "synthesized", "no_answer", "budget_exhausted"]
+    answer: str | None
+    reason: str | None
+    reference_pages: list[int]
+    cited_regions: list[CitedRegion]
+    inspect_rounds: int
+    seek_rounds: int
+    usage: UsageTotals
     trace_id: str

@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import datetime
 import json
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Literal
+
+from zoomdoc.errors import ZoomDocError
 
 
 class Span:
@@ -12,9 +15,14 @@ class Span:
         self.logger = logger
         self.node = node
         self.span_id = uuid.uuid4().hex[:12]
+        self._t0 = time.perf_counter()
 
     def __enter__(self) -> Span:
+        self._t0 = time.perf_counter()
         return self
+
+    def elapsed_ms(self) -> float:
+        return (time.perf_counter() - self._t0) * 1000.0
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         pass
@@ -47,6 +55,7 @@ class TraceLogger:
         completion_tokens: int | None,
         attempt: int,
         payload: dict,
+        namespace: str = "main",
     ) -> None:
         # Sanitize raw output truncation if present
         clean_payload = dict(payload)
@@ -60,6 +69,7 @@ class TraceLogger:
             "trace_id": self.trace_id,
             "span_id": span_id,
             "node": node,
+            "namespace": namespace,
             "status": status,
             "latency_ms": round(latency_ms, 2),
             "prompt_tokens": prompt_tokens,
@@ -68,5 +78,9 @@ class TraceLogger:
             "payload": clean_payload,
         }
 
+        record_str = json.dumps(record, ensure_ascii=False)
+        if "data:image" in record_str:
+            raise ZoomDocError("base64 image leaked into trace")
+
         with open(self.log_file, "a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+            f.write(record_str + "\n")

@@ -59,3 +59,15 @@
     .........................                                                [100%]
     25 passed in 4.04s
     ```
+- [x] Step 2: 基础层契约修改与透传
+  - [x] `zoomdoc/agents/base.py` 增加 `usage_sink` 全量计量与 `namespace`
+  - [x] `zoomdoc/observability.py` `Span` 计时能力、`namespace` 支持与 base64 泄漏检测
+  - [x] `zoomdoc/schemas.py` 扩展 `InspectorAnswerM2`, `InspectorOutputM2`, `FinalResultM2`, `UsageTotals`, `CitedRegion`
+  - [x] `zoomdoc/config.py` 与 `.env.example` 增加 M2 超参数
+  - [x] `zoomdoc/prompts.py` 增加 `INSPECTOR_PROMPT_M2`, `SYNTHESIZER_TEXT_PROMPT`, `render_evidence_block`
+  - [x] `zoomdoc/agents/inspector.py`, `seeker.py`, `synthesizer.py` 透传 `usage_sink` 与 `namespace`
+  - [x] Pytest 验证输出（25/25 PASSED）：
+    ```
+    .........................                                                [100%]
+    25 passed in 4.36s
+    ```

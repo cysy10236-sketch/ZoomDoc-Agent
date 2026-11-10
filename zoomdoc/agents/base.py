@@ -9,6 +9,7 @@ from zoomdoc.errors import AgentOutputError
 from zoomdoc.llm.json_parser import extract_json
 from zoomdoc.llm.vlm_client import Part, VLMClient, VLMResponse
 from zoomdoc.observability import TraceLogger
+from zoomdoc.schemas import VLMUsage
 
 T = TypeVar("T")
 
@@ -22,11 +23,14 @@ def call_with_schema(
     max_attempts: int,
     logger: TraceLogger,
     validate: Callable[[T], None] | None = None,
+    usage_sink: list[VLMUsage] | None = None,
+    namespace: str = "main",
 ) -> tuple[T, VLMResponse, int]:
     """Execute VLM call with automatic JSON extraction, schema validation, and retry with correction.
 
     Catches (json.JSONDecodeError, ValidationError, ValueError).
     Logs retry events and appends correction dialog to extra_messages.
+    Records all usages to usage_sink if provided (fixing D1 token loss).
     Raises AgentOutputError after exceeding max_attempts.
     """
     extra_messages: list[dict] = []
@@ -36,6 +40,8 @@ def call_with_schema(
     for attempt in range(1, max_attempts + 1):
         with logger.span(agent) as span:
             resp = vlm.generate(parts, extra_messages=extra_messages if extra_messages else None)
+            if usage_sink is not None:
+                usage_sink.append(resp.usage)
             last_raw = resp.text
 
             try:
@@ -53,6 +59,7 @@ def call_with_schema(
                     completion_tokens=resp.usage.completion_tokens,
                     attempt=attempt,
                     payload={"raw": resp.text, "parsed": raw_json},
+                    namespace=namespace,
                 )
                 return (obj, resp, attempt)
 
@@ -67,6 +74,7 @@ def call_with_schema(
                     completion_tokens=resp.usage.completion_tokens,
                     attempt=attempt,
                     payload={"raw": resp.text, "error": last_error},
+                    namespace=namespace,
                 )
 
                 if attempt < max_attempts:

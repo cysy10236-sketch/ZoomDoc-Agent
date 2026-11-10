@@ -9,7 +9,7 @@ from pydantic import TypeAdapter
 from zoomdoc.agents.base import call_with_schema
 from zoomdoc.llm.vlm_client import ImagePart, TextPart, VLMClient, VLMResponse
 from zoomdoc.prompts import SEEKER_PROMPT_TEMPLATE
-from zoomdoc.schemas import PageAsset, SeekerOutput
+from zoomdoc.schemas import PageAsset, SeekerOutput, VLMUsage
 from zoomdoc.vision.grid import ARRANGEMENT, build_page_map, concat_grid
 
 if TYPE_CHECKING:
@@ -33,6 +33,8 @@ class Seeker:
         feedback: str | None,
         out_dir: str,
         step: int = 1,
+        usage_sink: list[VLMUsage] | None = None,
+        namespace: str = "main",
     ) -> tuple[SeekerOutput, list[int], VLMResponse, int]:
         n = len(candidate)
         assert 1 <= n <= 20, f"Seeker expects 1 <= candidate count <= 20, got {n}"
@@ -75,6 +77,8 @@ class Seeker:
             max_attempts=self.settings.max_attempts,
             logger=self.logger,
             validate=validate,
+            usage_sink=usage_sink,
+            namespace=namespace,
         )
 
         # Preserve order of distinct selections
