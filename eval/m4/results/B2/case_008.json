@@ -1,0 +1,55 @@
+{
+  "case_id": "case_008",
+  "group": "B2",
+  "track": "TrackB",
+  "total_pages": 50,
+  "pdf_path": "D:\\Yi\\Desktop\\ZoomDoc-Agent\\eval\\m4\\pdfs\\doc4_multicolumn_bench_50p.pdf",
+  "gold": "ZD-5078-KY",
+  "gold_page": 24,
+  "font_pt": 5.0,
+  "query_type": "cross_page_table",
+  "status": "answered",
+  "answer": "ZD-5078-KY (Page 24) and DIS-0028-XX (Page 28)",
+  "is_correct": false,
+  "reference_pages": [
+    24,
+    28
+  ],
+  "candidate_pages": [
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31
+  ],
+  "selected_pages": [
+    24,
+    28
+  ],
+  "nav_rounds": 1,
+  "seek_rounds": 1,
+  "inspect_rounds": 1,
+  "zoom_count": 0,
+  "is_zoomed": false,
+  "render_latency_ms": 2098.9,
+  "tree_latency_ms": 25.63,
+  "total_wall_ms": 45975.9,
+  "usage": {
+    "calls": 4,
+    "prompt_tokens": 6341,
+    "completion_tokens": 2393,
+    "missing_usage_calls": 0,
+    "latency_ms": 43735.88
+  },
+  "error": null,
+  "trace_id": "m4-B2-case_008"
+}

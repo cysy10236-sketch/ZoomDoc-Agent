@@ -1,0 +1,45 @@
+{
+  "case_id": "case_002",
+  "group": "M3",
+  "track": "TrackA",
+  "total_pages": 100,
+  "pdf_path": "D:\\Yi\\Desktop\\ZoomDoc-Agent\\eval\\m4\\pdfs\\doc1_financial_100p.pdf",
+  "gold": "ZD-9841-KY",
+  "gold_page": 83,
+  "font_pt": 4.0,
+  "query_type": "backtrack_trap",
+  "status": "answered",
+  "answer": "ZD-8841-KY",
+  "is_correct": false,
+  "reference_pages": [
+    83
+  ],
+  "candidate_pages": [
+    81,
+    82,
+    83,
+    84,
+    85
+  ],
+  "selected_pages": [
+    84,
+    83
+  ],
+  "nav_rounds": 1,
+  "seek_rounds": 2,
+  "inspect_rounds": 2,
+  "zoom_count": 0,
+  "is_zoomed": false,
+  "render_latency_ms": 735.35,
+  "tree_latency_ms": 7.09,
+  "total_wall_ms": 45263.35,
+  "usage": {
+    "calls": 6,
+    "prompt_tokens": 6624,
+    "completion_tokens": 1819,
+    "missing_usage_calls": 0,
+    "latency_ms": 44422.53
+  },
+  "error": null,
+  "trace_id": "m4-M3-case_002"
+}

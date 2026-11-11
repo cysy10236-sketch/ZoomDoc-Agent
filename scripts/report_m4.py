@@ -309,7 +309,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--out-dir",
+        "--out",
         default="eval/m4",
+        dest="out_dir",
         help="Output directory for report",
     )
     args = parser.parse_args()

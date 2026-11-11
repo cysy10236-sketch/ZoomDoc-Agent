@@ -267,7 +267,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--out-dir",
+        "--out",
         default="eval/m4/results",
+        dest="out_dir",
         help="Directory to save evaluation results",
     )
     parser.add_argument(

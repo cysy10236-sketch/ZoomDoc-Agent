@@ -166,7 +166,7 @@ def build_long_doc(
 
 def make_eval_m4(
     out_dir: str = "eval/m4",
-    n: int = 20,
+    n: int = 16,
     seed: int = 2026111004,
 ) -> list[dict[str, Any]]:
     """Generate Track A (Synthetic Long Hard) and Track B (Realistic Benchmark) evaluation dataset."""
@@ -516,13 +516,31 @@ def make_eval_m4(
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
 
     print(f"Generated {len(manifest_records)} test cases in {manifest_path}")
+
+    # Generate 8-case orthogonal balanced subset (manifest_sub8.jsonl)
+    # Covering Doc1~Doc4 (2 each), direct_section / cross_page_table / backtrack_trap, 4.0pt / 5.0pt
+    sub8_indices = [1, 2, 4, 5, 10, 11, 12, 13]
+    sub8_records: list[dict[str, Any]] = []
+    for idx_num, src_idx in enumerate(sub8_indices):
+        rec = dict(raw_cases[src_idx])
+        rec["case_id"] = f"case_{idx_num + 1:03d}"
+        rec["origin_case_index"] = src_idx + 1
+        sub8_records.append(rec)
+
+    sub8_path = base_dir / "manifest_sub8.jsonl"
+    with open(sub8_path, "w", encoding="utf-8") as f:
+        for r in sub8_records:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+    print(f"Generated {len(sub8_records)} orthogonal balanced test cases in {sub8_path}")
+
     return manifest_records
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate Milestone 4 evaluation benchmark dataset.")
     parser.add_argument("--out", default="eval/m4", help="Output directory")
-    parser.add_argument("--n", type=int, default=20, help="Number of test cases")
+    parser.add_argument("--n", type=int, default=16, help="Number of test cases (default 16 for all distinct cases)")
     parser.add_argument("--seed", type=int, default=2026111004, help="Random seed")
     args = parser.parse_args()
 
