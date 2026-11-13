@@ -11,7 +11,7 @@ from zoomdoc.config import Settings, get_settings
 from zoomdoc.errors import ZoomDocError
 from zoomdoc.eval.baselines import run_sliding_grid_baseline
 from zoomdoc.eval.metrics import normalize_text
-from zoomdoc.graph.supervisor import run_m3
+from zoomdoc.graph.supervisor import run_m3, run_m5
 from zoomdoc.schemas import FinalResultM3
 
 
@@ -127,6 +127,105 @@ def run_case_for_group(
                     + result.reference_pages
                 )
             )
+        elif group == "M5":
+            m5_cfg = cfg.model_copy(
+                update={
+                    "use_tree_index": True,
+                    "max_steps": max(cfg.max_steps, 16),
+                    "zoom_mode": "fovea",
+                    "enable_logprobs_entropy": True,
+                    "enable_sboed_gate": True,
+                    "force_zoom_on_alnum_code": True,
+                    "enable_residual_verification": True,
+                    "enable_tree_flattening": True,
+                    "enable_content_cache": True,
+                }
+            )
+            result, state = run_m5(
+                question=question,
+                pdf_path=pdf_path,
+                vlm=vlm_client,
+                settings=m5_cfg,
+                trace_id=trace_id,
+            )
+            all_nav_pages = []
+            for nr in state.nav_reports:
+                all_nav_pages.extend(nr.candidate_pages)
+            candidate_pages = sorted(list(set(all_nav_pages)))
+            selected_pages = list(
+                dict.fromkeys(
+                    state.all_selected_pages
+                    + state.selected_pages
+                    + [p for e in state.evidence for p in e.reference_pages]
+                    + result.reference_pages
+                )
+            )
+        elif group == "M5_crop":
+            m5_crop_cfg = cfg.model_copy(
+                update={
+                    "use_tree_index": True,
+                    "max_steps": max(cfg.max_steps, 16),
+                    "zoom_mode": "crop",
+                    "enable_logprobs_entropy": True,
+                    "enable_sboed_gate": True,
+                    "force_zoom_on_alnum_code": True,
+                    "enable_residual_verification": False,
+                    "enable_tree_flattening": True,
+                    "enable_content_cache": True,
+                }
+            )
+            result, state = run_m5(
+                question=question,
+                pdf_path=pdf_path,
+                vlm=vlm_client,
+                settings=m5_crop_cfg,
+                trace_id=trace_id,
+            )
+            all_nav_pages = []
+            for nr in state.nav_reports:
+                all_nav_pages.extend(nr.candidate_pages)
+            candidate_pages = sorted(list(set(all_nav_pages)))
+            selected_pages = list(
+                dict.fromkeys(
+                    state.all_selected_pages
+                    + state.selected_pages
+                    + [p for e in state.evidence for p in e.reference_pages]
+                    + result.reference_pages
+                )
+            )
+        elif group == "M5_no_sboed":
+            m5_nosboed_cfg = cfg.model_copy(
+                update={
+                    "use_tree_index": True,
+                    "max_steps": max(cfg.max_steps, 16),
+                    "zoom_mode": "fovea",
+                    "enable_logprobs_entropy": False,
+                    "enable_sboed_gate": False,
+                    "force_zoom_on_alnum_code": False,
+                    "enable_residual_verification": True,
+                    "enable_tree_flattening": True,
+                    "enable_content_cache": True,
+                }
+            )
+            result, state = run_m5(
+                question=question,
+                pdf_path=pdf_path,
+                vlm=vlm_client,
+                settings=m5_nosboed_cfg,
+                trace_id=trace_id,
+            )
+            all_nav_pages = []
+            for nr in state.nav_reports:
+                all_nav_pages.extend(nr.candidate_pages)
+            candidate_pages = sorted(list(set(all_nav_pages)))
+            selected_pages = list(
+                dict.fromkeys(
+                    state.all_selected_pages
+                    + state.selected_pages
+                    + [p for e in state.evidence for p in e.reference_pages]
+                    + result.reference_pages
+                )
+            )
         else:
             raise ValueError(f"Unknown evaluation group: {group}")
 
@@ -172,6 +271,8 @@ def run_case_for_group(
         "inspect_rounds": inspect_rounds,
         "zoom_count": zoom_count,
         "is_zoomed": zoom_count > 0,
+        "residual_corrections": getattr(result, "residual_corrections", 0) if "result" in locals() else 0,
+        "cache_hit": getattr(result, "cache_hit", False) if "result" in locals() else False,
         "render_latency_ms": render_latency_ms,
         "tree_latency_ms": tree_latency_ms,
         "total_wall_ms": total_wall_ms,
@@ -242,7 +343,7 @@ def run_eval_m4(
                 settings=settings,
             )
             results.append(rec)
-            status_sym = "✓" if rec["is_correct"] else "✗"
+            status_sym = "[OK]" if rec["is_correct"] else "[X]"
             print(
                 f"[{grp}][{case_id}] {status_sym} (pred={rec['answer']}, gold={rec['gold']}, status={rec['status']})"
             )
@@ -256,7 +357,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Milestone 4 Benchmark Runner.")
     parser.add_argument(
         "--group",
-        choices=["B0", "B1", "B2", "M3", "all"],
+        choices=["B0", "B1", "B2", "M3", "M5", "M5_crop", "M5_no_sboed", "all"],
         default="all",
         help="Evaluation group to execute",
     )

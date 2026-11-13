@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import functools
+import re
 import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -74,11 +75,92 @@ def inspect_node(
     )
 
     new_usage = merge_usage(state.usage, usage_from_sink(sink))
+    ans_entropy = (
+        getattr(resp.usage, "max_token_entropy", None) if resp and resp.usage else None
+    )
+
+    # In-subgraph S-BOED gate
+    if (
+        isinstance(output, InspectorAnswerM2)
+        and state.zoom_count == 0
+        and state.zoom_count < state.max_zooms
+        and (state.sub_step + 1) < state.max_sub_steps
+        and getattr(settings, "enable_sboed_gate", False)
+    ):
+        high_ent = ans_entropy is not None and ans_entropy > settings.entropy_zoom_threshold
+        has_code = (
+            getattr(settings, "force_zoom_on_alnum_code", False)
+            and bool(re.search(r"[A-Za-z0-9]{2,}-[A-Za-z0-9\-]+|\d+\.\d+", output.answer))
+        )
+        if high_ent or has_code:
+            ref_idx = output.reference[0] if output.reference else 0
+            if not (state.view and 0 <= ref_idx < len(state.view.items)):
+                ref_idx = 0
+            target_page_num = next(iter(state.pages.keys()), 1)
+            if state.view and 0 <= ref_idx < len(state.view.items):
+                it = state.view.items[ref_idx]
+                if it[0] == "page":
+                    target_page_num = it[1]
+                elif it[0] == "crop" and it[1] in state.crops:
+                    target_page_num = state.crops[it[1]].page
+                    for idx_cand, item_cand in enumerate(state.view.items):
+                        if item_cand == ("page", target_page_num):
+                            ref_idx = idx_cand
+                            break
+
+            from zoomdoc.vision.residual import locate_target_zoom_box
+
+            norm_box = locate_target_zoom_box(
+                pdf_path=state.pdf_path,
+                page_num=target_page_num,
+                question=state.question,
+                draft_answer=output.answer,
+            )
+            if settings.bbox_format == "yxyx_1000":
+                vlm_bbox = (
+                    round(norm_box.y1 * 1000.0, 1),
+                    round(norm_box.x1 * 1000.0, 1),
+                    round(norm_box.y2 * 1000.0, 1),
+                    round(norm_box.x2 * 1000.0, 1),
+                )
+            elif settings.bbox_format == "xyxy_abs" and target_page_num in state.pages:
+                w_v, h_v = state.pages[target_page_num].view_size
+                vlm_bbox = (
+                    round(norm_box.x1 * w_v, 1),
+                    round(norm_box.y1 * h_v, 1),
+                    round(norm_box.x2 * w_v, 1),
+                    round(norm_box.y2 * h_v, 1),
+                )
+            else:
+                vlm_bbox = (
+                    round(norm_box.x1 * 1000.0, 1),
+                    round(norm_box.y1 * 1000.0, 1),
+                    round(norm_box.x2 * 1000.0, 1),
+                    round(norm_box.y2 * 1000.0, 1),
+                )
+            synth_zoom = InspectorZoom(
+                action="zoom",
+                reason=(
+                    f"S-BOED gate forced foveation (entropy={ans_entropy}, code_guard={has_code})"
+                ),
+                image=ref_idx,
+                bbox_2d=vlm_bbox,
+                target=output.answer,
+            )
+            return {
+                "last_output": synth_zoom,
+                "pending_zoom": synth_zoom,
+                "sub_step": state.sub_step + 1,
+                "usage": new_usage,
+                "latest_answer_entropy": ans_entropy,
+            }
+
     return {
         "last_output": output,
         "pending_zoom": output if isinstance(output, InspectorZoom) else None,
         "sub_step": state.sub_step + 1,
         "usage": new_usage,
+        "latest_answer_entropy": ans_entropy,
     }
 
 
@@ -113,7 +195,17 @@ def zoom_node(
         parent_crop = state.crops[target_item[1]]
         target_page = state.pages[parent_crop.page]
         local_box = vlm_bbox_to_norm(pending.bbox_2d, settings.bbox_format, parent_crop.size)
-        page_box = crop_box_to_page_box(local_box, parent_crop.page_box)
+        if getattr(settings, "zoom_mode", "crop") == "fovea" and parent_crop.warp_meta is not None:
+            from zoomdoc.vision.fovea import fovea_box_to_page_box
+
+            page_box = fovea_box_to_page_box(
+                local_box=local_box,
+                warp_meta=parent_crop.warp_meta,
+                src_size=target_page.source_size,
+                out_size=parent_crop.size,
+            )
+        else:
+            page_box = crop_box_to_page_box(local_box, parent_crop.page_box)
 
     crop_id = f"r{state.round}c{state.zoom_count}"
     with logger.span("zoom") as span:
@@ -138,6 +230,7 @@ def zoom_node(
                 "page": target_page.page,
                 "pixel_box": crop_asset.pixel_box,
                 "target": pending.target,
+                "reason": pending.reason,
             },
             namespace=f"inspector_sub/r{state.round}",
         )
@@ -153,7 +246,9 @@ def zoom_node(
     }
 
 
-def pack_report_node(state: InspectorSubState) -> dict[str, Any]:
+def pack_report_node(
+    state: InspectorSubState, settings: Settings | None = None
+) -> dict[str, Any]:
     """Format final EvidenceReport from subgraph execution, discarding internal images."""
     last = state.last_output
     ref_pages: list[int] = []
@@ -195,10 +290,40 @@ def pack_report_node(state: InspectorSubState) -> dict[str, Any]:
                             )
                         )
 
+            # Ensure that if any high-res crop exists for a referenced page, its page_box is included in cited_regions
+            for p_num in list(ref_pages):
+                for c_asset in state.crops.values():
+                    if c_asset.page == p_num:
+                        if not any(cr.page == p_num and cr.page_box == c_asset.page_box for cr in cited_regions):
+                            cited_regions.append(
+                                CitedRegion(
+                                    page=c_asset.page,
+                                    page_box=c_asset.page_box,
+                                    target=c_asset.target,
+                                )
+                            )
+
+        final_ans = last.answer
+        is_corr = False
+        if (
+            settings is not None
+            and getattr(settings, "enable_residual_verification", False)
+            and state.pdf_path
+        ):
+            from zoomdoc.vision.residual import verify_and_correct_answer
+
+            final_ans, is_corr = verify_and_correct_answer(
+                answer=last.answer,
+                pdf_path=state.pdf_path,
+                reference_pages=sorted(list(set(ref_pages))),
+                cited_regions=cited_regions,
+                max_optical_distance=getattr(settings, "residual_max_optical_distance", 1.5),
+            )
+
         report = EvidenceReport(
             round=state.round,
             status="answered",
-            answer=last.answer,
+            answer=final_ans,
             confidence=last.confidence,
             reason=last.reason,
             seek_hint=None,
@@ -207,6 +332,8 @@ def pack_report_node(state: InspectorSubState) -> dict[str, Any]:
             zoom_count=state.zoom_count,
             sub_steps=state.sub_step,
             usage=state.usage,
+            answer_entropy=state.latest_answer_entropy,
+            residual_corrected=is_corr,
         )
     elif isinstance(last, InspectorSeek):
         if state.view is not None:
@@ -260,7 +387,7 @@ def build_inspector_subgraph(
     g.add_node("prepare", functools.partial(prepare_node, settings=settings))
     g.add_node("inspect", functools.partial(inspect_node, vlm=vlm, settings=settings, logger=logger))
     g.add_node("zoom", functools.partial(zoom_node, settings=settings, logger=logger))
-    g.add_node("pack_report", pack_report_node)
+    g.add_node("pack_report", functools.partial(pack_report_node, settings=settings))
 
     g.add_edge(START, "prepare")
     g.add_edge("prepare", "inspect")
@@ -289,6 +416,7 @@ def run_inspector_round(
     vlm: VLMClient,
     settings: Settings,
     logger: TraceLogger,
+    pdf_path: str = "",
 ) -> EvidenceReport:
     """Execute a single round of visual inspection in an isolated sub-state scope.
 
@@ -306,6 +434,7 @@ def run_inspector_round(
         round=round_,
         sub_dir=str(sub_dir.resolve()),
         pages=pages,
+        pdf_path=pdf_path,
         feedback=feedback,
         max_zooms=settings.max_zooms,
         max_sub_steps=settings.max_sub_steps,

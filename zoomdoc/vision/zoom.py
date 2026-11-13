@@ -23,7 +23,20 @@ def zoom(
     """Crop high-resolution source image at normalized coordinates, pad/clamp, and upsample.
 
     Idempotent: returns existing CropAsset if file already exists on disk.
+    If settings.zoom_mode == 'fovea', delegates to foveate_zoom.
     """
+    if getattr(settings, "zoom_mode", "crop") == "fovea":
+        from zoomdoc.vision.fovea import foveate_zoom
+
+        return foveate_zoom(
+            page=page,
+            page_box_requested=page_box_requested,
+            settings=settings,
+            out_dir=out_dir,
+            crop_id=crop_id,
+            target=target,
+        )
+
     padded_box = pad_and_clamp(
         page_box_requested,
         pad_ratio=settings.zoom_pad_ratio,

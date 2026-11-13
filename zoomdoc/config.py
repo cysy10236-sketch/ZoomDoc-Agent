@@ -53,6 +53,28 @@ class Settings(BaseSettings):
 
     runs_dir: str = "runs"
 
+    # Milestone 5 (FoveaDoc & Cache) parameters
+    zoom_mode: Literal["crop", "fovea"] = "crop"
+    fovea_header_ratio: float = Field(0.12, ge=0.0, le=0.35)
+    fovea_stub_ratio: float = Field(0.15, ge=0.0, le=0.35)
+    fovea_focus_share: float = Field(0.65, ge=0.40, le=0.85)
+    fovea_anchor_share: float = Field(0.15, ge=0.0, le=0.25)
+
+    enable_logprobs_entropy: bool = False
+    enable_sboed_gate: bool = False
+    entropy_zoom_threshold: float = Field(0.15, ge=0.0, le=5.0)
+    force_zoom_on_alnum_code: bool = False
+
+    enable_residual_verification: bool = False
+    residual_max_optical_distance: float = Field(1.5, ge=0.0, le=3.0)
+
+    enable_tree_flattening: bool = False
+    tree_flatten_max_nodes: int = Field(40, ge=1)
+
+    enable_content_cache: bool = False
+    cache_dir: str = ".cache/zoomdoc"
+    redis_url: str | None = None
+
 
 @functools.lru_cache(maxsize=1)
 def get_settings() -> Settings:

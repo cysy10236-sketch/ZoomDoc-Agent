@@ -1,0 +1,57 @@
+{
+  "case_id": "case_003",
+  "group": "M5_crop",
+  "track": "TrackA",
+  "total_pages": 80,
+  "pdf_path": "D:\\Yi\\Desktop\\ZoomDoc-Agent\\eval\\m4\\pdfs\\doc2_supply_chain_80p.pdf",
+  "gold": "ZD-1458-BV",
+  "gold_page": 34,
+  "font_pt": 4.0,
+  "query_type": "direct_section",
+  "status": "answered",
+  "answer": "ZD-1458-BV",
+  "is_correct": true,
+  "reference_pages": [
+    34
+  ],
+  "candidate_pages": [
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40
+  ],
+  "selected_pages": [
+    34,
+    38
+  ],
+  "nav_rounds": 1,
+  "seek_rounds": 1,
+  "inspect_rounds": 1,
+  "zoom_count": 1,
+  "is_zoomed": true,
+  "residual_corrections": 0,
+  "cache_hit": true,
+  "render_latency_ms": 27.01,
+  "tree_latency_ms": 3.44,
+  "total_wall_ms": 131523.39,
+  "usage": {
+    "calls": 4,
+    "prompt_tokens": 8739,
+    "completion_tokens": 6512,
+    "missing_usage_calls": 0,
+    "latency_ms": 131359.49
+  },
+  "error": null,
+  "trace_id": "m4-M5_crop-case_003"
+}

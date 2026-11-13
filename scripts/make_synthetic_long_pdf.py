@@ -100,7 +100,8 @@ def create_synthetic_long_pdf(
             page.insert_text(fitz.Point(385, 765), "Ledger #", fontsize=5, color=(0, 0, 0))
             page.insert_text(fitz.Point(475, 765), f"L-0{page_num}", fontsize=5, color=(0, 0, 0))
 
-    doc.set_toc(toc)
+    valid_toc = [item for item in toc if item[2] <= total_pages]
+    doc.set_toc(valid_toc)
 
     out_file = Path(out_path)
     out_file.parent.mkdir(parents=True, exist_ok=True)

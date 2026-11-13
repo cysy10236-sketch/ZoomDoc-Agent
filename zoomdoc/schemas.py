@@ -49,6 +49,7 @@ class CropAsset(BaseModel):
     size: tuple[int, int]
     target: str  # VLM 声称要读取的内容
     pixel_box: tuple[int, int, int, int]  # 在 source 图上的 (X1, Y1, X2, Y2)
+    warp_meta: dict[str, list[float]] | None = None
 
 
 # ---------- VLM 输出模式（字段名沿用 ViDoRAG agent_prompt.py） ----------
@@ -133,6 +134,8 @@ class VLMUsage(BaseModel):
     completion_tokens: int | None
     latency_ms: float
     model: str
+    max_token_entropy: float | None = None
+    mean_token_entropy: float | None = None
 
 
 class StepRecord(BaseModel):
@@ -244,3 +247,5 @@ class FinalResultM3(FinalResultM2):
     render_latency_ms: float = 0.0
     tree_latency_ms: float = 0.0
     total_wall_ms: float = 0.0
+    cache_hit: bool = False
+    residual_corrections: int = 0

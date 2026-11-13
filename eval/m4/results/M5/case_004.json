@@ -1,0 +1,57 @@
+{
+  "case_id": "case_004",
+  "group": "M5",
+  "track": "TrackA",
+  "total_pages": 80,
+  "pdf_path": "D:\\Yi\\Desktop\\ZoomDoc-Agent\\eval\\m4\\pdfs\\doc2_supply_chain_80p.pdf",
+  "gold": "ZD-3160-NK",
+  "gold_page": 49,
+  "font_pt": 5.0,
+  "query_type": "cross_page_table",
+  "status": "answered",
+  "answer": "ZD-3160-NK",
+  "is_correct": true,
+  "reference_pages": [
+    49
+  ],
+  "candidate_pages": [
+    41,
+    42,
+    43,
+    44,
+    45,
+    46,
+    47,
+    48,
+    49,
+    50,
+    51,
+    52,
+    53,
+    54,
+    55
+  ],
+  "selected_pages": [
+    49,
+    52
+  ],
+  "nav_rounds": 1,
+  "seek_rounds": 1,
+  "inspect_rounds": 1,
+  "zoom_count": 1,
+  "is_zoomed": true,
+  "residual_corrections": 0,
+  "cache_hit": true,
+  "render_latency_ms": 44.29,
+  "tree_latency_ms": 1.82,
+  "total_wall_ms": 100488.01,
+  "usage": {
+    "calls": 4,
+    "prompt_tokens": 9421,
+    "completion_tokens": 3342,
+    "missing_usage_calls": 0,
+    "latency_ms": 98362.08
+  },
+  "error": null,
+  "trace_id": "m4-M5-case_004"
+}

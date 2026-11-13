@@ -149,7 +149,12 @@ def decide_next(state: SupervisorState, settings: Settings) -> tuple[NextNode, d
     # R6: Critic rejected with recoverable visual issue
     if (
         state.verdict is not None
-        and state.verdict.reason_code in {"low_confidence", "invalid_reference", "budget_exhausted"}
+        and state.verdict.reason_code in {
+            "low_confidence",
+            "invalid_reference",
+            "budget_exhausted",
+            "high_entropy",
+        }
         and state.inspect_rounds < settings.max_inspect_rounds
     ):
         return (
@@ -218,9 +223,21 @@ def ingest_node(state: SupervisorState, settings: Settings) -> dict[str, Any]:
     if total_pages <= settings.max_pages and not settings.use_tree_index:
         # Milestone 1 & 2 backwards-compatible path: pre-render all pages
         t0 = time.perf_counter()
-        pages = render_pdf(state.pdf_path, state.run_dir, settings)
+        pages_hit = False
+        if getattr(settings, "enable_content_cache", False):
+            from zoomdoc.cache import get_cached_or_render_pages
+
+            pages_dict, pages_hit = get_cached_or_render_pages(
+                state.pdf_path,
+                list(range(1, total_pages + 1)),
+                state.run_dir,
+                settings,
+            )
+            pages = [pages_dict[p] for p in sorted(pages_dict)]
+        else:
+            pages = render_pdf(state.pdf_path, state.run_dir, settings)
+            pages_dict = {p.page: p for p in pages}
         render_ms = round((time.perf_counter() - t0) * 1000.0, 2)
-        pages_dict = {p.page: p for p in pages}
         step_rec = StepRecord(
             step=state.step + 1,
             node="ingest",
@@ -236,6 +253,7 @@ def ingest_node(state: SupervisorState, settings: Settings) -> dict[str, Any]:
             "step": state.step + 1,
             "history": [step_rec],
             "render_latency_ms": render_ms,
+            "cache_hit": state.cache_hit or pages_hit,
         }
     else:
         # Milestone 3 lazy-rendering path: defer rendering until Navigator selects candidate pages
@@ -263,13 +281,26 @@ def tree_builder_node(
     logger: TraceLogger,
 ) -> dict[str, Any]:
     """Build hierarchical outline DocumentTree."""
-    t0 = time.perf_counter()
-    tree = build_document_tree(
-        pdf_path=state.pdf_path,
-        max_leaf_pages=settings.max_leaf_pages,
-        out_dir=state.run_dir,
-    )
-    tree_ms = round((time.perf_counter() - t0) * 1000.0, 2)
+    cache_hit = False
+    if getattr(settings, "enable_content_cache", False):
+        from zoomdoc.cache import get_cached_or_build_tree
+
+        t0 = time.perf_counter()
+        tree, cache_hit = get_cached_or_build_tree(
+            pdf_path=state.pdf_path,
+            settings=settings,
+            out_dir=state.run_dir,
+        )
+        tree_ms = round((time.perf_counter() - t0) * 1000.0, 2)
+    else:
+        t0 = time.perf_counter()
+        tree = build_document_tree(
+            pdf_path=state.pdf_path,
+            max_leaf_pages=settings.max_leaf_pages,
+            out_dir=state.run_dir,
+        )
+        tree_ms = round((time.perf_counter() - t0) * 1000.0, 2)
+
     step_rec = StepRecord(
         step=state.step + 1,
         node="tree_builder",
@@ -283,6 +314,7 @@ def tree_builder_node(
         "step": state.step + 1,
         "history": [step_rec],
         "tree_latency_ms": tree_ms,
+        "cache_hit": state.cache_hit or cache_hit,
         "next": None,
     }
 
@@ -355,9 +387,18 @@ def seeker_node(
     missing_pages = [p for p in state.candidate_pages if p not in state.pages]
     updated_pages = dict(state.pages)
     render_ms = 0.0
+    cache_hit = False
     if missing_pages:
         t0 = time.perf_counter()
-        rendered = render_pdf_pages(state.pdf_path, missing_pages, state.run_dir, settings)
+        if getattr(settings, "enable_content_cache", False):
+            from zoomdoc.cache import get_cached_or_render_pages
+
+            rendered, pages_hit = get_cached_or_render_pages(
+                state.pdf_path, missing_pages, state.run_dir, settings
+            )
+            cache_hit = pages_hit
+        else:
+            rendered = render_pdf_pages(state.pdf_path, missing_pages, state.run_dir, settings)
         render_ms = round((time.perf_counter() - t0) * 1000.0, 2)
         updated_pages.update(rendered)
 
@@ -396,6 +437,7 @@ def seeker_node(
         "history": [step_rec],
         "usage": usage_from_sink(sink),
         "render_latency_ms": render_ms,
+        "cache_hit": state.cache_hit or cache_hit,
         "next": None,
     }
 
@@ -424,6 +466,7 @@ def inspector_subgraph_node(
         vlm=vlm,
         settings=settings,
         logger=logger,
+        pdf_path=state.pdf_path,
     )
 
     step_rec = StepRecord(
@@ -475,6 +518,9 @@ def synthesizer_text_node(
     for rep in state.evidence:
         all_cited.extend(rep.cited_regions)
 
+    residual_corrections = sum(
+        1 for e in state.evidence if getattr(e, "residual_corrected", False)
+    )
     result = FinalResultM3(
         status="synthesized",
         answer=obj.answer,
@@ -492,6 +538,8 @@ def synthesizer_text_node(
         total_wall_ms=0.0,
         usage=merge_usage(state.usage, usage_from_sink(sink)),
         trace_id=state.trace_id,
+        cache_hit=state.cache_hit,
+        residual_corrections=residual_corrections,
     )
 
     step_rec = StepRecord(
@@ -515,6 +563,11 @@ def synthesizer_text_node(
 
 def finalize_node(state: SupervisorState, settings: Settings) -> dict[str, Any]:
     """Finalize pipeline: write result.json and supervisor_state.json for audit."""
+    residual_corrections = sum(
+        1 for e in state.evidence if getattr(e, "residual_corrected", False)
+    )
+    cache_hit = state.cache_hit
+
     result = state.result
     if result is None:
         if state.verdict is not None and state.verdict.accepted and state.evidence:
@@ -536,6 +589,8 @@ def finalize_node(state: SupervisorState, settings: Settings) -> dict[str, Any]:
                 total_wall_ms=0.0,
                 usage=state.usage,
                 trace_id=state.trace_id,
+                cache_hit=cache_hit,
+                residual_corrections=residual_corrections,
             )
         else:
             has_budget_ex = (
@@ -566,6 +621,16 @@ def finalize_node(state: SupervisorState, settings: Settings) -> dict[str, Any]:
                 total_wall_ms=0.0,
                 usage=state.usage,
                 trace_id=state.trace_id,
+                cache_hit=cache_hit,
+                residual_corrections=residual_corrections,
+            )
+    else:
+        if isinstance(result, FinalResultM3):
+            result = result.model_copy(
+                update={
+                    "cache_hit": cache_hit,
+                    "residual_corrections": residual_corrections,
+                }
             )
 
     # Persist result.json
@@ -720,11 +785,100 @@ def run_m3(
         else FinalResultM3.model_validate(final_state.result.model_dump())
     )
     res_m3 = res_m3.model_copy(update={"total_wall_ms": wall_ms})
+    final_state = final_state.model_copy(update={"result": res_m3})
 
-    # Re-persist updated result.json
+    # Re-persist updated result.json and supervisor_state.json
     res_path = Path(final_state.run_dir) / "result.json"
     with open(res_path, "w", encoding="utf-8") as f:
         f.write(res_m3.model_dump_json(indent=2))
+
+    sup_state_path = Path(final_state.run_dir) / "supervisor_state.json"
+    with open(sup_state_path, "w", encoding="utf-8") as f:
+        f.write(final_state.model_dump_json(indent=2))
+
+    return (res_m3, final_state)
+
+
+def run_m5(
+    question: str,
+    pdf_path: str,
+    vlm: VLMClient | None = None,
+    settings: Settings | None = None,
+    trace_id: str | None = None,
+) -> tuple[FinalResultM3, SupervisorState]:
+    """Main execution entry point for ZoomDoc Milestone 5 (FoveaDoc) pipeline."""
+    t_start = time.perf_counter()
+    base_cfg = settings or get_settings()
+    explicit_fields = settings.model_fields_set if settings is not None else set()
+    m5_defaults: dict[str, Any] = {
+        "use_tree_index": True,
+        "zoom_mode": "fovea",
+        "enable_logprobs_entropy": True,
+        "enable_sboed_gate": True,
+        "force_zoom_on_alnum_code": True,
+        "enable_residual_verification": True,
+        "enable_tree_flattening": True,
+        "enable_content_cache": True,
+    }
+    updates: dict[str, Any] = {k: v for k, v in m5_defaults.items() if k not in explicit_fields}
+    if "max_steps" not in explicit_fields:
+        updates["max_steps"] = max(base_cfg.max_steps, 16)
+    cfg = base_cfg.model_copy(update=updates)
+    t_id = trace_id or uuid.uuid4().hex[:12]
+    run_dir = Path(cfg.runs_dir) / t_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    logger = TraceLogger(cfg.runs_dir, t_id)
+    client = vlm or OpenAICompatVLM(cfg)
+
+    app = build_supervisor_graph(client, cfg, logger)
+
+    initial_state = SupervisorState(
+        trace_id=t_id,
+        question=question,
+        pdf_path=str(Path(pdf_path).resolve()),
+        run_dir=str(run_dir.resolve()),
+    )
+
+    limit = 4 * (cfg.max_seek_rounds + cfg.max_inspect_rounds + cfg.max_nav_rounds) + 15
+    final_output = app.invoke(initial_state, config={"recursion_limit": limit})
+
+    final_state = (
+        SupervisorState.model_validate(final_output)
+        if isinstance(final_output, dict)
+        else final_output
+    )
+
+    if final_state.result is None:
+        raise ZoomDocError("Pipeline finished without producing a FinalResultM3 object")
+
+    wall_ms = round((time.perf_counter() - t_start) * 1000.0, 2)
+    residual_corrections = sum(
+        1 for e in final_state.evidence if getattr(e, "residual_corrected", False)
+    )
+
+    res_m3 = (
+        final_state.result
+        if isinstance(final_state.result, FinalResultM3)
+        else FinalResultM3.model_validate(final_state.result.model_dump())
+    )
+    res_m3 = res_m3.model_copy(
+        update={
+            "total_wall_ms": wall_ms,
+            "cache_hit": final_state.cache_hit,
+            "residual_corrections": residual_corrections,
+        }
+    )
+    final_state = final_state.model_copy(update={"result": res_m3})
+
+    # Re-persist updated result.json and supervisor_state.json
+    res_path = Path(final_state.run_dir) / "result.json"
+    with open(res_path, "w", encoding="utf-8") as f:
+        f.write(res_m3.model_dump_json(indent=2))
+
+    sup_state_path = Path(final_state.run_dir) / "supervisor_state.json"
+    with open(sup_state_path, "w", encoding="utf-8") as f:
+        f.write(final_state.model_dump_json(indent=2))
 
     return (res_m3, final_state)
 

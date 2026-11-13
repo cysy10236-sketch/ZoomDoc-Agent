@@ -1,0 +1,51 @@
+{
+  "case_id": "case_006",
+  "group": "M5",
+  "track": "TrackA",
+  "total_pages": 60,
+  "pdf_path": "D:\\Yi\\Desktop\\ZoomDoc-Agent\\eval\\m4\\pdfs\\doc3_compliance_60p.pdf",
+  "gold": "ZD-6953-KY",
+  "gold_page": 56,
+  "font_pt": 5.0,
+  "query_type": "direct_section",
+  "status": "answered",
+  "answer": "ZD-6953-KY",
+  "is_correct": true,
+  "reference_pages": [
+    56
+  ],
+  "candidate_pages": [
+    52,
+    53,
+    54,
+    55,
+    56,
+    57,
+    58,
+    59,
+    60
+  ],
+  "selected_pages": [
+    56,
+    58
+  ],
+  "nav_rounds": 1,
+  "seek_rounds": 1,
+  "inspect_rounds": 1,
+  "zoom_count": 1,
+  "is_zoomed": true,
+  "residual_corrections": 0,
+  "cache_hit": true,
+  "render_latency_ms": 1039.91,
+  "tree_latency_ms": 1.12,
+  "total_wall_ms": 131808.2,
+  "usage": {
+    "calls": 4,
+    "prompt_tokens": 8140,
+    "completion_tokens": 6116,
+    "missing_usage_calls": 0,
+    "latency_ms": 130383.86
+  },
+  "error": null,
+  "trace_id": "m4-M5-case_006"
+}

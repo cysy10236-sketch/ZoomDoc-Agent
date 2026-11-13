@@ -15,6 +15,8 @@ def evaluate_report(
     report: EvidenceReport,
     valid_pages: set[int],
     min_conf: float,
+    *,
+    max_entropy: float | None = None,
 ) -> CriticVerdict:
     """Pure deterministic function evaluating an EvidenceReport against rules and thresholds.
 
@@ -23,8 +25,9 @@ def evaluate_report(
     2. status == "need_more_pages"  -> (False, "need_more_pages")
     3. answer is None or blank      -> (False, "no_answer")
     4. reference_pages empty or not subset of valid_pages -> (False, "invalid_reference")
-    5. confidence is None or < min_conf -> (False, "low_confidence")
-    6. Otherwise -> (True, "ok")
+    5. high entropy gate violation   -> (False, "high_entropy")
+    6. confidence is None or < min_conf -> (False, "low_confidence")
+    7. Otherwise -> (True, "ok")
     """
     if report.status == "budget_exhausted":
         return CriticVerdict(
@@ -55,6 +58,21 @@ def evaluate_report(
             detail=(
                 f"Reference pages {report.reference_pages} are not a non-empty subset "
                 f"of inspected valid pages {sorted(list(valid_pages))}."
+            ),
+        )
+
+    if (
+        max_entropy is not None
+        and report.answer_entropy is not None
+        and report.answer_entropy > max_entropy
+        and report.zoom_count == 0
+    ):
+        return CriticVerdict(
+            accepted=False,
+            reason_code="high_entropy",
+            detail=(
+                f"answer_entropy={report.answer_entropy:.4f} > {max_entropy:.4f} with zoom_count=0; "
+                f"re-inspect and zoom on the region supporting: {report.answer}"
             ),
         )
 
@@ -96,8 +114,16 @@ def critic_node(
     report = state.evidence[-1]
     valid_pages = set(state.selected_pages)
 
+    max_ent = (
+        settings.entropy_zoom_threshold
+        if getattr(settings, "enable_sboed_gate", False)
+        else None
+    )
+
     with logger.span("critic") as span:
-        verdict = evaluate_report(report, valid_pages, settings.critic_min_confidence)
+        verdict = evaluate_report(
+            report, valid_pages, settings.critic_min_confidence, max_entropy=max_ent
+        )
         logger.event(
             span_id=span.span_id,
             node="critic",

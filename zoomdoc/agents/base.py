@@ -50,6 +50,11 @@ def call_with_schema(
                 if validate is not None:
                     validate(obj)
 
+                evt_payload: dict[str, Any] = {"raw": resp.text, "parsed": raw_json}
+                if resp.usage.max_token_entropy is not None:
+                    evt_payload["max_token_entropy"] = resp.usage.max_token_entropy
+                    evt_payload["mean_token_entropy"] = resp.usage.mean_token_entropy
+
                 logger.event(
                     span_id=span.span_id,
                     node=agent,
@@ -58,7 +63,7 @@ def call_with_schema(
                     prompt_tokens=resp.usage.prompt_tokens,
                     completion_tokens=resp.usage.completion_tokens,
                     attempt=attempt,
-                    payload={"raw": resp.text, "parsed": raw_json},
+                    payload=evt_payload,
                     namespace=namespace,
                 )
                 return (obj, resp, attempt)

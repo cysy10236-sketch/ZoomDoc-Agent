@@ -47,6 +47,8 @@ def analyze_group_m4(records: list[dict[str, Any]]) -> dict[str, Any]:
             "p95_wall_ms": 0.0,
             "mean_render_share": 0.0,
             "errors": 0,
+            "cache_hit_rate": 0.0,
+            "residual_corrections": 0,
         }
 
     correct_cnt = sum(1 for r in records if r.get("is_correct", False))
@@ -85,6 +87,9 @@ def analyze_group_m4(records: list[dict[str, Any]]) -> dict[str, Any]:
     mean_render_share = sum(shares) / len(shares) if shares else 0.0
 
     errors = sum(1 for r in records if r.get("status") == "error")
+    cache_hits = sum(1 for r in records if r.get("cache_hit", False))
+    cache_hit_rate = cache_hits / n if n > 0 else 0.0
+    residual_corrections = sum(r.get("residual_corrections", 0) for r in records)
 
     return {
         "n": n,
@@ -100,6 +105,8 @@ def analyze_group_m4(records: list[dict[str, Any]]) -> dict[str, Any]:
         "p95_wall_ms": round(percentile(wall_latencies, 95), 1) if wall_latencies else 0.0,
         "mean_render_share": round(mean_render_share, 4),
         "errors": errors,
+        "cache_hit_rate": round(cache_hit_rate, 4),
+        "residual_corrections": residual_corrections,
     }
 
 
@@ -117,11 +124,17 @@ def generate_report_m4(
     b1_recs = load_group_results(r_dir, "B1")
     b2_recs = load_group_results(r_dir, "B2")
     m3_recs = load_group_results(r_dir, "M3")
+    m5_recs = load_group_results(r_dir, "M5")
+    m5_nosboed_recs = load_group_results(r_dir, "M5_no_sboed")
+    m5_crop_recs = load_group_results(r_dir, "M5_crop")
 
     stats_b0 = analyze_group_m4(b0_recs)
     stats_b1 = analyze_group_m4(b1_recs)
     stats_b2 = analyze_group_m4(b2_recs)
     stats_m3 = analyze_group_m4(m3_recs)
+    stats_m5 = analyze_group_m4(m5_recs)
+    stats_m5_nosboed = analyze_group_m4(m5_nosboed_recs)
+    stats_m5_crop = analyze_group_m4(m5_crop_recs)
 
     # 1. H1 Paired Bootstrap Ratio CI (M3 vs B0)
     # Match cases by case_id
@@ -129,6 +142,7 @@ def generate_report_m4(
     dict_b1 = {r["case_id"]: r for r in b1_recs}
     dict_b2 = {r["case_id"]: r for r in b2_recs}
     dict_m3 = {r["case_id"]: r for r in m3_recs}
+    dict_m5 = {r["case_id"]: r for r in m5_recs}
 
     common_ids_b0 = [cid for cid in dict_m3 if cid in dict_b0]
     num_m3_b0: list[float] = []
@@ -177,10 +191,40 @@ def generate_report_m4(
             "savings_ci_high": 0.0,
         }
 
+    # Paired Bootstrap Ratio CI (M5 vs B0: FoveaDoc vs Full-Res Sliding Window)
+    common_ids_m5_b0 = [cid for cid in dict_m5 if cid in dict_b0]
+    num_m5_b0: list[float] = []
+    den_b0_m5: list[float] = []
+    for cid in common_ids_m5_b0:
+        u_m5 = dict_m5[cid].get("usage", {}) or {}
+        u_b0 = dict_b0[cid].get("usage", {}) or {}
+        p_m5 = float(u_m5.get("prompt_tokens") or 0.0)
+        p_b0 = float(u_b0.get("prompt_tokens") or 0.0)
+        num_m5_b0.append(p_m5)
+        den_b0_m5.append(p_b0)
+
+    if den_b0_m5 and sum(den_b0_m5) > 0:
+        boot_m5_b0 = paired_bootstrap_ratio_ci(num_m5_b0, den_b0_m5, n_boot=2000, seed=42)
+    else:
+        boot_m5_b0 = {
+            "ratio": 1.0,
+            "ratio_ci_low": 1.0,
+            "ratio_ci_high": 1.0,
+            "savings": 0.0,
+            "savings_ci_low": 0.0,
+            "savings_ci_high": 0.0,
+        }
+
     # Paired McNemar exact tests on accuracy: M3 vs B0, M3 vs B1, M3 vs B2
     b_b0, c_b0, p_mcnemar_m3_b0 = compute_mcnemar(m3_recs, b0_recs)
     b_b1, c_b1, p_mcnemar_m3_b1 = compute_mcnemar(m3_recs, b1_recs)
     b_b2, c_b2, p_mcnemar_m3_b2 = compute_mcnemar(m3_recs, b2_recs)
+    b_m5_m3, c_m5_m3, p_mcnemar_m5_m3 = (
+        compute_mcnemar(m5_recs, m3_recs) if m5_recs else (0, 0, 1.0)
+    )
+    b_m5_b0, c_m5_b0, p_mcnemar_m5_b0 = (
+        compute_mcnemar(m5_recs, b0_recs) if m5_recs else (0, 0, 1.0)
+    )
 
     # H1 Verdict Decision Rule from §13.4
     point_ratio = boot_m3_b0["ratio"]
@@ -223,35 +267,78 @@ def generate_report_m4(
     # 4. Bad Cases Export
     bad_cases_path = o_dir / "bad_cases.jsonl"
     with open(bad_cases_path, "w", encoding="utf-8") as fp:
-        for r in b0_recs + b1_recs + b2_recs + m3_recs:
+        for r in b0_recs + b1_recs + b2_recs + m3_recs + m5_recs + m5_nosboed_recs + m5_crop_recs:
             if not r.get("is_correct", False):
                 fp.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+    # Optional Section 6: Component-Wise Orthogonal Ablation
+    ablation_lines: list[str] = []
+    if m5_nosboed_recs or m5_crop_recs:
+        b_nosboed, c_nosboed, p_nosboed = (
+            compute_mcnemar(m5_recs, m5_nosboed_recs) if (m5_recs and m5_nosboed_recs) else (0, 0, 1.0)
+        )
+        b_crop, c_crop, p_crop = (
+            compute_mcnemar(m5_recs, m5_crop_recs) if (m5_recs and m5_crop_recs) else (0, 0, 1.0)
+        )
+        ablation_lines = [
+            "### 6. FoveaDoc 组件级正交消融实验 (Component-Wise Orthogonal Ablation)",
+            "",
+            "| 指标 | B2 (Tree-NoZoom) | M3 (Verbal-Gate + Crop) | M5_no_sboed (w/o S-BOED, Residual Only) | M5_crop (S-BOED + Linear Crop) | M5 (Full FoveaDoc) |",
+            "|---|---|---|---|---|---|",
+            f"| 样本量 $N$ | {stats_b2['n']} | {stats_m3['n']} | {stats_m5_nosboed['n']} | {stats_m5_crop['n']} | {stats_m5['n']} |",
+            f"| 端到端准确率 (Accuracy) | {stats_b2['acc']*100:.1f}% | {stats_m3['acc']*100:.1f}% | {stats_m5_nosboed['acc']*100:.1f}% | {stats_m5_crop['acc']*100:.1f}% | {stats_m5['acc']*100:.1f}% |",
+            f"| 95% Wilson 置信区间 | [{stats_b2['ci'][0]*100:.1f}%, {stats_b2['ci'][1]*100:.1f}%] | [{stats_m3['ci'][0]*100:.1f}%, {stats_m3['ci'][1]*100:.1f}%] | [{stats_m5_nosboed['ci'][0]*100:.1f}%, {stats_m5_nosboed['ci'][1]*100:.1f}%] | [{stats_m5_crop['ci'][0]*100:.1f}%, {stats_m5_crop['ci'][1]*100:.1f}%] | [{stats_m5['ci'][0]*100:.1f}%, {stats_m5['ci'][1]*100:.1f}%] |",
+            f"| Zoom 高清放大触发率 | {stats_b2['zoom_rate']*100:.1f}% | {stats_m3['zoom_rate']*100:.1f}% | {stats_m5_nosboed['zoom_rate']*100:.1f}% | {stats_m5_crop['zoom_rate']*100:.1f}% | {stats_m5['zoom_rate']*100:.1f}% |",
+            f"| 跨模态残差纠偏次数 | N/A | N/A | {stats_m5_nosboed['residual_corrections']} | {stats_m5_crop['residual_corrections']} | {stats_m5['residual_corrections']} |",
+            f"| 平均 Prompt Tokens | {stats_b2['avg_prompt_tokens']:.0f} | {stats_m3['avg_prompt_tokens']:.0f} | {stats_m5_nosboed['avg_prompt_tokens']:.0f} | {stats_m5_crop['avg_prompt_tokens']:.0f} | {stats_m5['avg_prompt_tokens']:.0f} |",
+            f"| 平均 Completion Tokens | {stats_b2['avg_completion_tokens']:.0f} | {stats_m3['avg_completion_tokens']:.0f} | {stats_m5_nosboed['avg_completion_tokens']:.0f} | {stats_m5_crop['avg_completion_tokens']:.0f} | {stats_m5['avg_completion_tokens']:.0f} |",
+            f"| 端到端耗时 P50 (ms) | {stats_b2['p50_wall_ms']:.0f} | {stats_m3['p50_wall_ms']:.0f} | {stats_m5_nosboed['p50_wall_ms']:.0f} | {stats_m5_crop['p50_wall_ms']:.0f} | {stats_m5['p50_wall_ms']:.0f} |",
+            f"| 端到端耗时 P95 (ms) | {stats_b2['p95_wall_ms']:.0f} | {stats_m3['p95_wall_ms']:.0f} | {stats_m5_nosboed['p95_wall_ms']:.0f} | {stats_m5_crop['p95_wall_ms']:.0f} | {stats_m5['p95_wall_ms']:.0f} |",
+            f"| 异常运行数 (Errors) | {stats_b2['errors']} | {stats_m3['errors']} | {stats_m5_nosboed['errors']} | {stats_m5_crop['errors']} | {stats_m5['errors']} |",
+            "",
+            "#### 6.1 消融配对显著性检验 (vs Full M5)",
+            f"- **M5 vs M5_no_sboed (S-BOED 熵门控与光学定位边际增益)**: M5胜={b_nosboed}, M5_no_sboed胜={c_nosboed}, 准确率差值 = `{(stats_m5['acc'] - stats_m5_nosboed['acc'])*100:+.1f}%`, **McNemar p = {p_nosboed:.4f}**",
+            f"- **M5 vs M5_crop (各向异性凹面镜 + 残差校验边际增益)**: M5胜={b_crop}, M5_crop胜={c_crop}, 准确率差值 = `{(stats_m5['acc'] - stats_m5_crop['acc'])*100:+.1f}%`, **McNemar p = {p_crop:.4f}**",
+        ]
+
+        ablation_file = o_dir / "ablation_report.md"
+        ablation_header = [
+            "# FoveaDoc (Milestone 5) 组件级正交消融实验报告",
+            "",
+            f"> 评测基准：`{manifest_path}` ($N = {stats_m5['n']}$)，受控超参数：`temperature = 0`, `seed = 42`。",
+            "",
+        ]
+        with open(ablation_file, "w", encoding="utf-8") as afp:
+            afp.write("\n".join(ablation_header + ablation_lines) + "\n")
+        print(f"Ablation report written to: {ablation_file.resolve()}")
 
     # Format Markdown Report
     lines = [
         f"## H1_VERDICT: {h1_verdict}",
         f"## M5_REDIS_TRIGGER: {m5_eval['decision']}",
         "",
-        "> **评测综述**：Milestone 4 开展 60~100 页长文档全链路对等基准评测，覆盖 4 组消融系统。",
+        "> **评测综述**：长文档全链路对等基准评测，覆盖消融对比基线与 FoveaDoc 系统。",
         f"> **H1 假说验证状态**：{h1_detail}",
         f"> **M5 触发门裁决详情**：{m5_eval['reason']} (Mean Render Share = {m5_eval['mean_render_share']*100:.1f}%, P95 Wall = {m5_eval['p95_wall_ms']:.1f} ms)",
         "",
-        "### 1. 4 组长文档消融系统综合对比",
+        "### 1. 长文档消融系统综合对比",
         "",
-        "| 指标 | B0 (SlidingGrid-FullRes) | B1 (SlidingGrid-Thumb) | B2 (Tree-NoZoom) | M3-Full (ZoomDoc-M3) |",
-        "|---|---|---|---|---|",
-        f"| 样本量 $N$ | {stats_b0['n']} | {stats_b1['n']} | {stats_b2['n']} | {stats_m3['n']} |",
-        f"| 端到端准确率 (Accuracy) | {stats_b0['acc']*100:.1f}% | {stats_b1['acc']*100:.1f}% | {stats_b2['acc']*100:.1f}% | {stats_m3['acc']*100:.1f}% |",
-        f"| 95% Wilson 置信区间 | [{stats_b0['ci'][0]*100:.1f}%, {stats_b0['ci'][1]*100:.1f}%] | [{stats_b1['ci'][0]*100:.1f}%, {stats_b1['ci'][1]*100:.1f}%] | [{stats_b2['ci'][0]*100:.1f}%, {stats_b2['ci'][1]*100:.1f}%] | [{stats_m3['ci'][0]*100:.1f}%, {stats_m3['ci'][1]*100:.1f}%] |",
-        f"| 章节导航召回率 (Nav Recall) | N/A (滑窗全扫) | N/A (滑窗全扫) | {stats_b2['nav_recall']*100:.1f}% | {stats_m3['nav_recall']*100:.1f}% |",
-        f"| 缩略图粗筛召回率 (Seek Recall) | {stats_b0['seeker_recall']*100:.1f}% | {stats_b1['seeker_recall']*100:.1f}% | {stats_b2['seeker_recall']*100:.1f}% | {stats_m3['seeker_recall']*100:.1f}% |",
-        f"| Zoom 高清放大触发率 | {stats_b0['zoom_rate']*100:.1f}% | {stats_b1['zoom_rate']*100:.1f}% | {stats_b2['zoom_rate']*100:.1f}% | {stats_m3['zoom_rate']*100:.1f}% |",
-        f"| 平均 Prompt Tokens | {stats_b0['avg_prompt_tokens']:.0f} | {stats_b1['avg_prompt_tokens']:.0f} | {stats_b2['avg_prompt_tokens']:.0f} | {stats_m3['avg_prompt_tokens']:.0f} |",
-        f"| 平均 Completion Tokens | {stats_b0['avg_completion_tokens']:.0f} | {stats_b1['avg_completion_tokens']:.0f} | {stats_b2['avg_completion_tokens']:.0f} | {stats_m3['avg_completion_tokens']:.0f} |",
-        f"| 端到端耗时 P50 (ms) | {stats_b0['p50_wall_ms']:.0f} | {stats_b1['p50_wall_ms']:.0f} | {stats_b2['p50_wall_ms']:.0f} | {stats_m3['p50_wall_ms']:.0f} |",
-        f"| 端到端耗时 P95 (ms) | {stats_b0['p95_wall_ms']:.0f} | {stats_b1['p95_wall_ms']:.0f} | {stats_b2['p95_wall_ms']:.0f} | {stats_m3['p95_wall_ms']:.0f} |",
-        f"| 渲染耗时占比 $\\rho_{{render}}$ | {stats_b0['mean_render_share']*100:.1f}% | {stats_b1['mean_render_share']*100:.1f}% | {stats_b2['mean_render_share']*100:.1f}% | {stats_m3['mean_render_share']*100:.1f}% |",
-        f"| 异常运行数 (Errors) | {stats_b0['errors']} | {stats_b1['errors']} | {stats_b2['errors']} | {stats_m3['errors']} |",
+        "| 指标 | B0 (SlidingGrid-FullRes) | B1 (SlidingGrid-Thumb) | B2 (Tree-NoZoom) | M3-Full (ZoomDoc-M3) | M5 (FoveaDoc) |",
+        "|---|---|---|---|---|---|",
+        f"| 样本量 $N$ | {stats_b0['n']} | {stats_b1['n']} | {stats_b2['n']} | {stats_m3['n']} | {stats_m5['n']} |",
+        f"| 端到端准确率 (Accuracy) | {stats_b0['acc']*100:.1f}% | {stats_b1['acc']*100:.1f}% | {stats_b2['acc']*100:.1f}% | {stats_m3['acc']*100:.1f}% | {stats_m5['acc']*100:.1f}% |",
+        f"| 95% Wilson 置信区间 | [{stats_b0['ci'][0]*100:.1f}%, {stats_b0['ci'][1]*100:.1f}%] | [{stats_b1['ci'][0]*100:.1f}%, {stats_b1['ci'][1]*100:.1f}%] | [{stats_b2['ci'][0]*100:.1f}%, {stats_b2['ci'][1]*100:.1f}%] | [{stats_m3['ci'][0]*100:.1f}%, {stats_m3['ci'][1]*100:.1f}%] | [{stats_m5['ci'][0]*100:.1f}%, {stats_m5['ci'][1]*100:.1f}%] |",
+        f"| 章节导航召回率 (Nav Recall) | N/A (滑窗全扫) | N/A (滑窗全扫) | {stats_b2['nav_recall']*100:.1f}% | {stats_m3['nav_recall']*100:.1f}% | {stats_m5['nav_recall']*100:.1f}% |",
+        f"| 缩略图粗筛召回率 (Seek Recall) | {stats_b0['seeker_recall']*100:.1f}% | {stats_b1['seeker_recall']*100:.1f}% | {stats_b2['seeker_recall']*100:.1f}% | {stats_m3['seeker_recall']*100:.1f}% | {stats_m5['seeker_recall']*100:.1f}% |",
+        f"| Zoom 高清放大触发率 | {stats_b0['zoom_rate']*100:.1f}% | {stats_b1['zoom_rate']*100:.1f}% | {stats_b2['zoom_rate']*100:.1f}% | {stats_m3['zoom_rate']*100:.1f}% | {stats_m5['zoom_rate']*100:.1f}% |",
+        f"| 平均 Prompt Tokens | {stats_b0['avg_prompt_tokens']:.0f} | {stats_b1['avg_prompt_tokens']:.0f} | {stats_b2['avg_prompt_tokens']:.0f} | {stats_m3['avg_prompt_tokens']:.0f} | {stats_m5['avg_prompt_tokens']:.0f} |",
+        f"| 平均 Completion Tokens | {stats_b0['avg_completion_tokens']:.0f} | {stats_b1['avg_completion_tokens']:.0f} | {stats_b2['avg_completion_tokens']:.0f} | {stats_m3['avg_completion_tokens']:.0f} | {stats_m5['avg_completion_tokens']:.0f} |",
+        f"| 端到端耗时 P50 (ms) | {stats_b0['p50_wall_ms']:.0f} | {stats_b1['p50_wall_ms']:.0f} | {stats_b2['p50_wall_ms']:.0f} | {stats_m3['p50_wall_ms']:.0f} | {stats_m5['p50_wall_ms']:.0f} |",
+        f"| 端到端耗时 P95 (ms) | {stats_b0['p95_wall_ms']:.0f} | {stats_b1['p95_wall_ms']:.0f} | {stats_b2['p95_wall_ms']:.0f} | {stats_m3['p95_wall_ms']:.0f} | {stats_m5['p95_wall_ms']:.0f} |",
+        f"| 渲染耗时占比 $\\rho_{{render}}$ | {stats_b0['mean_render_share']*100:.1f}% | {stats_b1['mean_render_share']*100:.1f}% | {stats_b2['mean_render_share']*100:.1f}% | {stats_m3['mean_render_share']*100:.1f}% | {stats_m5['mean_render_share']*100:.1f}% |",
+        f"| 内容寻址缓存命中率 (Cache Hit) | N/A | N/A | N/A | N/A | {stats_m5['cache_hit_rate']*100:.1f}% |",
+        f"| 跨模态残差纠偏次数 (Residual Corrections) | N/A | N/A | N/A | N/A | {stats_m5['residual_corrections']} |",
+        f"| 异常运行数 (Errors) | {stats_b0['errors']} | {stats_b1['errors']} | {stats_b2['errors']} | {stats_m3['errors']} | {stats_m5['errors']} |",
         "",
         "### 2. Token 节省率 Bootstrap 统计检验与配对显著性检验",
         "",
@@ -264,10 +351,16 @@ def generate_report_m4(
         f"- **点估计消耗比 $\\hat{{R}}$ (M3 / B1)**: `{boot_m3_b1['ratio']:.4f}` (95% CI: `[{boot_m3_b1['ratio_ci_low']:.4f}, {boot_m3_b1['ratio_ci_high']:.4f}]`)",
         f"- **相对 B1 节省率 $\\hat{{S}}$ (1 - R)**: `{boot_m3_b1['savings']*100:.2f}%` (95% CI: `[{boot_m3_b1['savings_ci_low']*100:.2f}%, {boot_m3_b1['savings_ci_high']*100:.2f}%]`)",
         "",
-        "#### 2.3 准确率配对显著性检验 (McNemar's Exact Test)",
+        "#### 2.3 升维创新架构对比：FoveaDoc vs 全量高分辨率滑窗 (M5 vs B0)",
+        f"- **点估计消耗比 $\\hat{{R}}$ (M5 / B0)**: `{boot_m5_b0['ratio']:.4f}` (95% CI: `[{boot_m5_b0['ratio_ci_low']:.4f}, {boot_m5_b0['ratio_ci_high']:.4f}]`)",
+        f"- **总体 Token 节省率 $\\hat{{S}}$ (1 - R)**: `{boot_m5_b0['savings']*100:.2f}%` (95% CI: `[{boot_m5_b0['savings_ci_low']*100:.2f}%, {boot_m5_b0['savings_ci_high']*100:.2f}%]`)",
+        "",
+        "#### 2.4 准确率配对显著性检验 (McNemar's Exact Test)",
         f"- **M3 vs B0 (Full-Res 滑窗基线)**: M3胜={b_b0}, B0胜={c_b0}, 准确率差值 = `{(stats_m3['acc'] - stats_b0['acc'])*100:+.1f}%`, **McNemar p = {p_mcnemar_m3_b0:.4f}**",
         f"- **M3 vs B1 (缩略图滑窗基线)**: M3胜={b_b1}, B1胜={c_b1}, 准确率差值 = `{(stats_m3['acc'] - stats_b1['acc'])*100:+.1f}%`, **McNemar p = {p_mcnemar_m3_b1:.4f}**",
         f"- **M3 vs B2 (无缩放树检索消融)**: M3胜={b_b2}, B2胜={c_b2}, 准确率差值 = `{(stats_m3['acc'] - stats_b2['acc'])*100:+.1f}%`, **McNemar p = {p_mcnemar_m3_b2:.4f}**",
+        f"- **M5 vs M3 (FoveaDoc 升维增益)**: M5胜={b_m5_m3}, M3胜={c_m5_m3}, 准确率差值 = `{(stats_m5['acc'] - stats_m3['acc'])*100:+.1f}%`, **McNemar p = {p_mcnemar_m5_m3:.4f}**",
+        f"- **M5 vs B0 (FoveaDoc vs 全图滑窗)**: M5胜={b_m5_b0}, B0胜={c_m5_b0}, 准确率差值 = `{(stats_m5['acc'] - stats_b0['acc'])*100:+.1f}%`, **McNemar p = {p_mcnemar_m5_b0:.4f}**",
         "",
         "### 3. Milestone 5 Redis 缓存触发门禁分析",
         "",
@@ -285,6 +378,8 @@ def generate_report_m4(
         f"### 5. 失败样例归档",
         f"已记录全量未完全匹配样例至 `{bad_cases_path.resolve()}`。",
     ]
+    if ablation_lines:
+        lines.extend([""] + ablation_lines)
 
     report_content = "\n".join(lines) + "\n"
     report_file = o_dir / "report.md"

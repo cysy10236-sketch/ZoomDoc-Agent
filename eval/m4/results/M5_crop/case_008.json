@@ -1,0 +1,56 @@
+{
+  "case_id": "case_008",
+  "group": "M5_crop",
+  "track": "TrackB",
+  "total_pages": 50,
+  "pdf_path": "D:\\Yi\\Desktop\\ZoomDoc-Agent\\eval\\m4\\pdfs\\doc4_multicolumn_bench_50p.pdf",
+  "gold": "ZD-5078-KY",
+  "gold_page": 24,
+  "font_pt": 5.0,
+  "query_type": "cross_page_table",
+  "status": "answered",
+  "answer": "ZD-5078-KY",
+  "is_correct": true,
+  "reference_pages": [
+    24
+  ],
+  "candidate_pages": [
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31
+  ],
+  "selected_pages": [
+    24,
+    28
+  ],
+  "nav_rounds": 1,
+  "seek_rounds": 1,
+  "inspect_rounds": 1,
+  "zoom_count": 1,
+  "is_zoomed": true,
+  "residual_corrections": 0,
+  "cache_hit": true,
+  "render_latency_ms": 21.14,
+  "tree_latency_ms": 3.92,
+  "total_wall_ms": 202048.81,
+  "usage": {
+    "calls": 4,
+    "prompt_tokens": 8873,
+    "completion_tokens": 2893,
+    "missing_usage_calls": 0,
+    "latency_ms": 201855.76
+  },
+  "error": null,
+  "trace_id": "m4-M5_crop-case_008"
+}

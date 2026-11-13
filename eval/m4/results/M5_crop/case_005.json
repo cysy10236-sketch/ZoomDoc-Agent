@@ -1,0 +1,48 @@
+{
+  "case_id": "case_005",
+  "group": "M5_crop",
+  "track": "TrackA",
+  "total_pages": 60,
+  "pdf_path": "D:\\Yi\\Desktop\\ZoomDoc-Agent\\eval\\m4\\pdfs\\doc3_compliance_60p.pdf",
+  "gold": "ZD-6269-BV",
+  "gold_page": 48,
+  "font_pt": 4.0,
+  "query_type": "backtrack_trap",
+  "status": "answered",
+  "answer": "ZD-6209-BV",
+  "is_correct": false,
+  "reference_pages": [
+    48
+  ],
+  "candidate_pages": [
+    45,
+    46,
+    47,
+    48,
+    49,
+    50,
+    51
+  ],
+  "selected_pages": [
+    48
+  ],
+  "nav_rounds": 1,
+  "seek_rounds": 1,
+  "inspect_rounds": 1,
+  "zoom_count": 1,
+  "is_zoomed": true,
+  "residual_corrections": 0,
+  "cache_hit": true,
+  "render_latency_ms": 12.29,
+  "tree_latency_ms": 3.3,
+  "total_wall_ms": 36333.43,
+  "usage": {
+    "calls": 4,
+    "prompt_tokens": 6029,
+    "completion_tokens": 1254,
+    "missing_usage_calls": 0,
+    "latency_ms": 36222.98
+  },
+  "error": null,
+  "trace_id": "m4-M5_crop-case_005"
+}

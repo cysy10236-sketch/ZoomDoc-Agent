@@ -30,12 +30,29 @@ def _is_fully_visited(node: DocTreeNode, visited_set: set[str]) -> bool:
     return all(_is_fully_visited(c, visited_set) for c in node.children)
 
 
-def nav_prepare_node(state: NavigatorSubState) -> dict[str, Any]:
+def nav_prepare_node(
+    state: NavigatorSubState, settings: Settings | None = None
+) -> dict[str, Any]:
     """Prepare current_frontier for the next navigation decision step."""
     all_nodes = flatten_tree_nodes(state.doc_tree)
     visited_set = set(state.visited_node_ids)
 
     if not state.current_frontier:
+        # Milestone 5: adaptive tree flattening
+        if settings is not None and getattr(settings, "enable_tree_flattening", False):
+            unvisited_nodes = [
+                n for n in all_nodes.values() if not _is_fully_visited(n, visited_set)
+            ]
+            if len(unvisited_nodes) <= getattr(settings, "tree_flatten_max_nodes", 40):
+                from zoomdoc.index.tree import get_leaf_nodes
+
+                leaf_nodes = get_leaf_nodes(state.doc_tree)
+                leaf_unvisited = [
+                    leaf.node_id for leaf in leaf_nodes if leaf.node_id not in visited_set
+                ]
+                if leaf_unvisited:
+                    return {"current_frontier": leaf_unvisited}
+
         # Initial frontier: unvisited root nodes
         roots_unvisited = [
             r.node_id for r in state.doc_tree.roots if not _is_fully_visited(r, visited_set)
@@ -189,7 +206,7 @@ def build_navigator_subgraph(
     """Build and compile isolated Navigator Subgraph."""
     g = StateGraph(NavigatorSubState)
 
-    g.add_node("nav_prepare", nav_prepare_node)
+    g.add_node("nav_prepare", functools.partial(nav_prepare_node, settings=settings))
     g.add_node(
         "nav_step",
         functools.partial(nav_step_node, vlm=vlm, settings=settings, logger=logger),

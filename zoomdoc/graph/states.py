@@ -13,6 +13,7 @@ from zoomdoc.schemas import (
     DocTreeNode,
     DocumentTree,
     FinalResultM2,
+    FinalResultM3,
     InspectorOutputM2,
     InspectorZoom,
     PageAsset,
@@ -96,6 +97,8 @@ class EvidenceReport(BaseModel):
     zoom_count: int
     sub_steps: int
     usage: UsageTotals
+    answer_entropy: float | None = Field(default=None, ge=0.0)
+    residual_corrected: bool = False
 
     @model_validator(mode="after")
     def _check_leak(self) -> "EvidenceReport":
@@ -116,6 +119,7 @@ class CriticVerdict(BaseModel):
         "need_more_pages",
         "budget_exhausted",
         "invalid_reference",
+        "high_entropy",
     ]
     detail: str
 
@@ -179,12 +183,13 @@ class SupervisorState(BaseModel):
         | None
     ) = None
     final_answer: str | None = None
-    result: FinalResultM2 | None = None
+    result: FinalResultM3 | FinalResultM2 | None = None
     usage: Annotated[UsageTotals, merge_usage] = Field(default_factory=UsageTotals)
     history: Annotated[list[StepRecord], operator.add] = Field(default_factory=list)
     render_latency_ms: Annotated[float, operator.add] = 0.0
     tree_latency_ms: Annotated[float, operator.add] = 0.0
     all_selected_pages: Annotated[list[int], operator.add] = Field(default_factory=list)
+    cache_hit: bool = False
 
 
 class NavigatorSubState(BaseModel):
@@ -218,6 +223,7 @@ class InspectorSubState(BaseModel):
     round: int
     sub_dir: str
     pages: dict[int, PageAsset]
+    pdf_path: str = ""
     feedback: str | None = None
     crops: dict[str, CropAsset] = Field(default_factory=dict)
     view: InspectorView | None = None
@@ -227,5 +233,6 @@ class InspectorSubState(BaseModel):
     zoom_count: int = 0
     max_zooms: int
     max_sub_steps: int
+    latest_answer_entropy: float | None = None
     usage: UsageTotals = Field(default_factory=UsageTotals)
     report: EvidenceReport | None = None
