@@ -1,0 +1,54 @@
+{
+  "case_id": "case_016",
+  "group": "M5_crop",
+  "track": "TrackB",
+  "total_pages": 50,
+  "pdf_path": "D:\\Yi\\Desktop\\ZoomDoc-Agent\\eval\\m4\\pdfs\\doc4_multicolumn_bench_50p.pdf",
+  "gold": "ZD-4722-WP",
+  "gold_page": 45,
+  "font_pt": 5.0,
+  "query_type": "direct_section",
+  "status": "answered",
+  "answer": "ZD-4722-WP",
+  "is_correct": true,
+  "reference_pages": [
+    45
+  ],
+  "candidate_pages": [
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46,
+    47,
+    48,
+    49,
+    50
+  ],
+  "selected_pages": [
+    41,
+    44,
+    45
+  ],
+  "nav_rounds": 1,
+  "seek_rounds": 1,
+  "inspect_rounds": 1,
+  "zoom_count": 1,
+  "is_zoomed": true,
+  "residual_corrections": 0,
+  "cache_hit": true,
+  "render_latency_ms": 16.51,
+  "tree_latency_ms": 2.97,
+  "total_wall_ms": 116179.07,
+  "usage": {
+    "calls": 4,
+    "prompt_tokens": 9695,
+    "completion_tokens": 5896,
+    "missing_usage_calls": 0,
+    "latency_ms": 116008.62
+  },
+  "error": null,
+  "trace_id": "m4-M5_crop-case_016"
+}

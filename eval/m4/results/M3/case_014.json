@@ -1,0 +1,52 @@
+{
+  "case_id": "case_014",
+  "group": "M3",
+  "track": "TrackA",
+  "total_pages": 60,
+  "pdf_path": "D:\\Yi\\Desktop\\ZoomDoc-Agent\\eval\\m4\\pdfs\\doc3_compliance_60p.pdf",
+  "gold": "ZD-5657-RT",
+  "gold_page": 39,
+  "font_pt": 5.0,
+  "query_type": "cross_page_table",
+  "status": "answered",
+  "answer": "ZD-5657-RT",
+  "is_correct": true,
+  "reference_pages": [
+    39
+  ],
+  "candidate_pages": [
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44
+  ],
+  "selected_pages": [
+    39,
+    42
+  ],
+  "nav_rounds": 1,
+  "seek_rounds": 1,
+  "inspect_rounds": 1,
+  "zoom_count": 1,
+  "is_zoomed": true,
+  "residual_corrections": 0,
+  "cache_hit": false,
+  "render_latency_ms": 1606.83,
+  "tree_latency_ms": 5.85,
+  "total_wall_ms": 68621.15,
+  "usage": {
+    "calls": 5,
+    "prompt_tokens": 8396,
+    "completion_tokens": 3863,
+    "missing_usage_calls": 0,
+    "latency_ms": 66890.05
+  },
+  "error": null,
+  "trace_id": "m4-M3-case_014"
+}

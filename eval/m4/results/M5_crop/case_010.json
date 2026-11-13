@@ -1,0 +1,57 @@
+{
+  "case_id": "case_010",
+  "group": "M5_crop",
+  "track": "TrackA",
+  "total_pages": 100,
+  "pdf_path": "D:\\Yi\\Desktop\\ZoomDoc-Agent\\eval\\m4\\pdfs\\doc1_financial_100p.pdf",
+  "gold": "ZD-2246-MZ",
+  "gold_page": 94,
+  "font_pt": 5.0,
+  "query_type": "direct_section",
+  "status": "answered",
+  "answer": "ZD-2246-MZ",
+  "is_correct": true,
+  "reference_pages": [
+    94
+  ],
+  "candidate_pages": [
+    86,
+    87,
+    88,
+    89,
+    90,
+    91,
+    92,
+    93,
+    94,
+    95,
+    96,
+    97,
+    98,
+    99,
+    100
+  ],
+  "selected_pages": [
+    88,
+    94
+  ],
+  "nav_rounds": 1,
+  "seek_rounds": 1,
+  "inspect_rounds": 1,
+  "zoom_count": 1,
+  "is_zoomed": true,
+  "residual_corrections": 0,
+  "cache_hit": true,
+  "render_latency_ms": 22.76,
+  "tree_latency_ms": 2.24,
+  "total_wall_ms": 43752.86,
+  "usage": {
+    "calls": 4,
+    "prompt_tokens": 9211,
+    "completion_tokens": 1483,
+    "missing_usage_calls": 0,
+    "latency_ms": 43581.1
+  },
+  "error": null,
+  "trace_id": "m4-M5_crop-case_010"
+}

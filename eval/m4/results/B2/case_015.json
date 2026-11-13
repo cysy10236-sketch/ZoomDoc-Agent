@@ -1,0 +1,49 @@
+{
+  "case_id": "case_015",
+  "group": "B2",
+  "track": "TrackB",
+  "total_pages": 50,
+  "pdf_path": "D:\\Yi\\Desktop\\ZoomDoc-Agent\\eval\\m4\\pdfs\\doc4_multicolumn_bench_50p.pdf",
+  "gold": "ZD-2869-TR",
+  "gold_page": 36,
+  "font_pt": 4.0,
+  "query_type": "direct_section",
+  "status": "answered",
+  "answer": "ZD-2889-TR",
+  "is_correct": false,
+  "reference_pages": [
+    36
+  ],
+  "candidate_pages": [
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39
+  ],
+  "selected_pages": [
+    36
+  ],
+  "nav_rounds": 1,
+  "seek_rounds": 1,
+  "inspect_rounds": 1,
+  "zoom_count": 0,
+  "is_zoomed": false,
+  "residual_corrections": 0,
+  "cache_hit": false,
+  "render_latency_ms": 1229.34,
+  "tree_latency_ms": 37.91,
+  "total_wall_ms": 30951.08,
+  "usage": {
+    "calls": 4,
+    "prompt_tokens": 4239,
+    "completion_tokens": 978,
+    "missing_usage_calls": 0,
+    "latency_ms": 29575.89
+  },
+  "error": null,
+  "trace_id": "m4-B2-case_015"
+}

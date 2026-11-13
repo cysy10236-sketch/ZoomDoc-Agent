@@ -2818,4 +2818,11 @@ $$\mathcal{C}_{\text{opt}} = \bigl\{\{\text{'0'}, \text{'D'}, \text{'O'}, \text{
   - `eval/m4/figures/pareto_accuracy_tokens.png`（300 DPI：Prompt Token–准确率帕累托前沿与消融柱状图）；
   - `eval/m4/tables/m5_benchmark_tables.tex`（主基准测试与组件级消融实验 `booktabs` 三线表）。
 
+### 18.6 全量 16 例基准扩展统计与失效边界剖析（`manifest_full16.jsonl`, $N=16$）
+- **实测汇总**（7 组 $\times$ 16 例 = 112 次运行，全部 `errors = 0`，详见 `eval/m4/report.md` 与 `eval/m4/ablation_report.md`）：
+  - 主对比准确率：`B0 = 31.2% (5/16)`、`B1 = 43.8% (7/16)`、`B2 = 37.5% (6/16)`、`M3 = 43.8% (7/16)`、**`M5 = 81.2% (13/16)`**；
+  - 消融对比准确率：`M5_no_sboed = 87.5% (14/16)`（残差纠偏 3 次）、`M5_crop = 93.8% (15/16)`（S-BOED 触发 100%）；
+  - **M5 vs B0 显著性与成本**：McNemar 精确检验 $p = 0.0386 < 0.05$（10 胜 2 负，`+50.0%`）；Bootstrap Prompt Token 消耗比 $\hat{R} = 0.5368$（总体节省 **`46.32%`**，95% CI `[40.08%, 51.70%]`），内容缓存命中率 **`75.0%`**。
+- **失效边界定量归因**：`M5` 全量 3 例未命中（`case_012` 选中 12 页触发 6 图窗口截断、`case_013/014` 粗筛漏选金标页）均发生于 `Seeker` 上游粗筛环节；**在金标页进入 `Inspector` 窗口的 13 例中，`M5` 条件准确率保持 `100.0% (13/13)`**。
+
 

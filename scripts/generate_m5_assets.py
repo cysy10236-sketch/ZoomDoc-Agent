@@ -311,12 +311,16 @@ def generate_pareto_and_ablation_figure(
     ]
 
     stats_map: dict[str, dict[str, Any]] = {}
+    recs_map: dict[str, list[dict[str, Any]]] = {}
     for gid, _, _, _ in group_defs:
         recs = load_group_results(results_dir, gid)
         if recs:
+            recs_map[gid] = recs
             stats_map[gid] = analyze_group_m4(recs)
 
     b0_tok = max(1.0, stats_map["B0"]["avg_prompt_tokens"]) if "B0" in stats_map else 16580.0
+    n_eval = stats_map["M5"]["n"] if "M5" in stats_map else max((s["n"] for s in stats_map.values()), default=0)
+    manifest_lbl = "manifest_full16.jsonl" if n_eval >= 16 else "manifest_sub8.jsonl"
 
     W, H = 2400, 1450
     canvas = Image.new("RGB", (W, H), (248, 250, 252))
@@ -332,13 +336,13 @@ def generate_pareto_and_ablation_figure(
 
     draw.text(
         (60, 32),
-        "FoveaDoc Empirical Pareto Frontier & Component-Wise Ablation (N = 8, qwen3.8-flash)",
+        f"FoveaDoc Empirical Pareto Frontier & Component-Wise Ablation (N = {n_eval}, qwen3.8-flash)",
         font=font_title,
         fill=(15, 23, 42),
     )
     draw.text(
         (60, 82),
-        "Measured on manifest_sub8.jsonl (temperature = 0, seed = 42) | Error bars denote 95% Wilson Score Confidence Intervals",
+        f"Measured on {manifest_lbl} (temperature = 0, seed = 42) | Error bars denote 95% Wilson Score Confidence Intervals",
         font=font_sub,
         fill=(71, 85, 105),
     )
@@ -385,8 +389,17 @@ def generate_pareto_and_ablation_figure(
     draw.text((p_left[0] + 18, ax_y1 + ax_h // 2 - 40), "Accuracy", font=font_axis, fill=(15, 23, 42))
     draw.text((p_left[0] + 22, ax_y1 + ax_h // 2 - 10), "(%)", font=font_axis, fill=(15, 23, 42))
 
-    # Pareto frontier curve connecting nondominated tree systems (B2 -> M3 -> M5)
-    frontier_ids = [gid for gid in ("B2", "M3", "M5") if gid in stats_map]
+    # Compute true empirical Pareto frontier dynamically (sorted by ascending prompt tokens, strict acc improvements)
+    sorted_by_tok = sorted(
+        [(gid, stats_map[gid]["avg_prompt_tokens"], stats_map[gid]["acc"] * 100.0) for gid in stats_map],
+        key=lambda x: (x[1], -x[2]),
+    )
+    frontier_ids: list[str] = []
+    best_acc = -1.0
+    for gid, _, acc_v in sorted_by_tok:
+        if acc_v > best_acc + 1e-6:
+            frontier_ids.append(gid)
+            best_acc = acc_v
     if len(frontier_ids) >= 2:
         f_pts = [to_px(stats_map[g]["avg_prompt_tokens"], stats_map[g]["acc"] * 100.0) for g in frontier_ids]
         for i in range(len(f_pts) - 1):
@@ -395,7 +408,7 @@ def generate_pareto_and_ablation_figure(
     # Custom non-overlapping label placement: ("left" | "right", dx, dy)
     label_specs = {
         "B0": ("left", -16, -12),
-        "B1": ("left", -16, -12),
+        "B1": ("left", -72, -12),
         "B2": ("right", 18, 10),
         "M3": ("left", -16, -12),
         "M5_no_sboed": ("right", 165, -12),
@@ -440,6 +453,8 @@ def generate_pareto_and_ablation_figure(
         tx = (cx + dx - tw) if side == "left" else (cx + dx)
         if gid in ("M5_crop", "M5_no_sboed"):
             draw.line([(cx + r + 2, cy), (tx - 6, cy)], fill=color, width=2)
+        elif gid == "B1":
+            draw.line([(tx + tw + 6, cy), (cx - r - 2, cy)], fill=color, width=2)
         draw.text((tx, cy + dy), lbl, font=font_label, fill=color)
 
     # Bottom summary card inside Left Panel
@@ -450,9 +465,22 @@ def generate_pareto_and_ablation_figure(
     m5_acc = stats_map["M5"]["acc"] * 100.0
     b0_acc = stats_map["B0"]["acc"] * 100.0
     m3_acc = stats_map["M3"]["acc"] * 100.0
-    draw.text((p_left[0] + 55, card_y1 + 16), f"Pareto Optimal Frontier (M5 FoveaDoc): Accuracy = {m5_acc:.1f}% vs. B0 ({b0_acc:.1f}%) & M3 ({m3_acc:.1f}%)", font=font_label, fill=(6, 78, 59))
-    draw.text((p_left[0] + 55, card_y1 + 52), f"Token Savings (M5 vs B0): {m5_save:.1f}% prompt tokens saved (Paired Bootstrap 45.79% CI [38.4%, 51.5%])", font=font_small, fill=(6, 95, 70))
-    draw.text((p_left[0] + 55, card_y1 + 86), "McNemar Exact Test: M5 vs B0 p = 0.0312 (significant < 0.05) | M5 vs M3 p = 0.0625 (5-0)", font=font_small, fill=(6, 95, 70))
+
+    d_m5 = {r["case_id"]: r for r in recs_map.get("M5", [])}
+    d_b0 = {r["case_id"]: r for r in recs_map.get("B0", [])}
+    common_cids = [c for c in d_m5 if c in d_b0]
+    boot_m5 = paired_bootstrap_ratio_ci(
+        [float((d_m5[c].get("usage") or {}).get("prompt_tokens") or 0.0) for c in common_cids],
+        [float((d_b0[c].get("usage") or {}).get("prompt_tokens") or 0.0) for c in common_cids],
+        n_boot=2000,
+        seed=42,
+    )
+    b_m5_b0, c_m5_b0, p_m5_b0 = compute_mcnemar(recs_map["M5"], recs_map["B0"])
+    b_m5_m3, c_m5_m3, p_m5_m3 = compute_mcnemar(recs_map["M5"], recs_map["M3"])
+
+    draw.text((p_left[0] + 55, card_y1 + 16), f"M5 (FoveaDoc) vs. Baselines: Acc = {m5_acc:.1f}% vs. B0 ({b0_acc:.1f}%) & M3 ({m3_acc:.1f}%)", font=font_label, fill=(6, 78, 59))
+    draw.text((p_left[0] + 55, card_y1 + 52), f"Token Savings (M5 vs B0): {m5_save:.1f}% prompt tokens saved (Bootstrap {boot_m5['savings']*100:.2f}% CI [{boot_m5['savings_ci_low']*100:.1f}%, {boot_m5['savings_ci_high']*100:.1f}%])", font=font_small, fill=(6, 95, 70))
+    draw.text((p_left[0] + 55, card_y1 + 86), f"McNemar Exact Test: M5 vs B0 p = {p_m5_b0:.4f} ({b_m5_b0}-{c_m5_b0}) | M5 vs M3 p = {p_m5_m3:.4f} ({b_m5_m3}-{c_m5_m3})", font=font_small, fill=(6, 95, 70))
 
     # --- Right Panel: Grouped Bar Chart ---
     bx1, by1 = p_right[0] + 95, p_right[1] + 135
@@ -520,11 +548,11 @@ def generate_pareto_and_ablation_figure(
     draw.text((p_right[0] + 55, rcard_y1 + 16), "Ablation Takeaways (Marginal Mechanism Contributions):", font=font_label, fill=(15, 23, 42))
     if "M5_no_sboed" in stats_map:
         s_ns = stats_map["M5_no_sboed"]
-        draw.text((p_right[0] + 55, rcard_y1 + 50), f"1. S-BOED Logprob Gate & Tiered Locate (M5 vs M5_no_sboed): Acc {s_ns['acc']*100:.1f}% -> {m5_acc:.1f}% | Zoom {s_ns['zoom_rate']*100:.1f}% -> 100.0%", font=font_small, fill=(51, 65, 85))
+        draw.text((p_right[0] + 55, rcard_y1 + 50), f"1. S-BOED Logprob Gate & Tiered Locate (M5 vs M5_no_sboed): Acc {s_ns['acc']*100:.1f}% -> {m5_acc:.1f}% | Zoom {s_ns['zoom_rate']*100:.1f}% -> {stats_map['M5']['zoom_rate']*100:.1f}%", font=font_small, fill=(51, 65, 85))
     if "M5_crop" in stats_map:
         s_cr = stats_map["M5_crop"]
-        draw.text((p_right[0] + 55, rcard_y1 + 84), f"2. Topological Foveation & Vector Residual (M5 vs M5_crop): Acc {s_cr['acc']*100:.1f}% -> {m5_acc:.1f}% (context + glyph check)", font=font_small, fill=(51, 65, 85))
-    draw.text((p_right[0] + 55, rcard_y1 + 118), "3. Content Cache & Tree Flattening: 50.0% warm cache hit rate, tree_latency <= 10 ms.", font=font_small, fill=(51, 65, 85))
+        draw.text((p_right[0] + 55, rcard_y1 + 84), f"2. Upstream Seek Recall & Linear Crop: M5_crop {s_cr['acc']*100:.1f}% vs M5 {m5_acc:.1f}% (M5 Seek Recall {stats_map['M5']['seeker_recall']*100:.1f}%)", font=font_small, fill=(51, 65, 85))
+    draw.text((p_right[0] + 55, rcard_y1 + 118), f"3. Content Cache & Tree Flattening: {stats_map['M5']['cache_hit_rate']*100:.1f}% warm cache hit rate, tree_latency <= 10 ms.", font=font_small, fill=(51, 65, 85))
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     canvas.save(out_path, format="PNG", dpi=(300, 300))
@@ -576,14 +604,17 @@ def generate_latex_tables(
             f"{s['p95_wall_ms']/1000.0:.1f} \\\\"
         )
 
+    n_eval = stats["M5"]["n"] if "M5" in stats else 0
+    tex_manifest = "manifest\\_full16.jsonl" if n_eval >= 16 else "manifest\\_sub8.jsonl"
+
     lines = [
         "% Auto-generated by scripts/generate_m5_assets.py from real benchmark JSON outputs",
         "% Requires: \\usepackage{booktabs}",
         "",
         "\\begin{table}[t]",
         "\\centering",
-        "\\caption{End-to-end benchmark comparison on \\texttt{manifest\\_sub8.jsonl} ($N=8$, \\texttt{qwen3.8-flash}, $\\text{temperature}=0$, $\\text{seed}=42$). Paired Bootstrap ($B=2000$) yields $\\hat{R}(\\text{M5}/\\text{B0})=%.4f$ (token savings $%.2f\\%%$); McNemar exact test gives $p=%.4f$ (M5 vs. B0) and $p=%.4f$ (M5 vs. M3).}"
-        % (boot_m5_b0["ratio"], boot_m5_b0["savings"] * 100.0, p_m5_b0, p_m5_m3),
+        "\\caption{End-to-end benchmark comparison on \\texttt{%s} ($N=%d$, \\texttt{qwen3.8-flash}, $\\text{temperature}=0$, $\\text{seed}=42$). Paired Bootstrap ($B=2000$) yields $\\hat{R}(\\text{M5}/\\text{B0})=%.4f$ (token savings $%.2f\\%%$); McNemar exact test gives $p=%.4f$ (M5 vs. B0) and $p=%.4f$ (M5 vs. M3).}"
+        % (tex_manifest, n_eval, boot_m5_b0["ratio"], boot_m5_b0["savings"] * 100.0, p_m5_b0, p_m5_m3),
         "\\label{tab:m5_main_benchmark}",
         "\\resizebox{\\textwidth}{!}{%",
         "\\begin{tabular}{lcccccccc}",
@@ -602,7 +633,8 @@ def generate_latex_tables(
         "",
         "\\begin{table}[t]",
         "\\centering",
-        "\\caption{Component-wise orthogonal ablation of FoveaDoc on \\texttt{manifest\\_sub8.jsonl} ($N=8$). Disabling S-BOED logprob gating (\\texttt{M5\\_no\\_sboed}) or anisotropic foveation and residual verification (\\texttt{M5\\_crop}) quantifies the marginal contribution of each subsystem.}",
+        "\\caption{Component-wise orthogonal ablation of FoveaDoc on \\texttt{%s} ($N=%d$). Disabling S-BOED logprob gating (\\texttt{M5\\_no\\_sboed}) or anisotropic foveation and residual verification (\\texttt{M5\\_crop}) quantifies the marginal contribution of each subsystem.}"
+        % (tex_manifest, n_eval),
         "\\label{tab:m5_ablation}",
         "\\resizebox{\\textwidth}{!}{%",
         "\\begin{tabular}{lccccccc}",

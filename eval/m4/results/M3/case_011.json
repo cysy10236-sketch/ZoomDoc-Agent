@@ -1,0 +1,53 @@
+{
+  "case_id": "case_011",
+  "group": "M3",
+  "track": "TrackA",
+  "total_pages": 80,
+  "pdf_path": "D:\\Yi\\Desktop\\ZoomDoc-Agent\\eval\\m4\\pdfs\\doc2_supply_chain_80p.pdf",
+  "gold": "ZD-5755-DX",
+  "gold_page": 64,
+  "font_pt": 4.0,
+  "query_type": "backtrack_trap",
+  "status": "answered",
+  "answer": "ZO-5755-OX",
+  "is_correct": false,
+  "reference_pages": [
+    64
+  ],
+  "candidate_pages": [
+    56,
+    57,
+    58,
+    59,
+    60,
+    61,
+    62,
+    63,
+    64,
+    65,
+    66,
+    67
+  ],
+  "selected_pages": [
+    64
+  ],
+  "nav_rounds": 1,
+  "seek_rounds": 1,
+  "inspect_rounds": 1,
+  "zoom_count": 0,
+  "is_zoomed": false,
+  "residual_corrections": 0,
+  "cache_hit": false,
+  "render_latency_ms": 1787.32,
+  "tree_latency_ms": 5.87,
+  "total_wall_ms": 30219.68,
+  "usage": {
+    "calls": 4,
+    "prompt_tokens": 4990,
+    "completion_tokens": 1329,
+    "missing_usage_calls": 0,
+    "latency_ms": 28365.83
+  },
+  "error": null,
+  "trace_id": "m4-M3-case_011"
+}

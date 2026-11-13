@@ -3,37 +3,37 @@
 
 \begin{table}[t]
 \centering
-\caption{End-to-end benchmark comparison on \texttt{manifest\_sub8.jsonl} ($N=8$, \texttt{qwen3.8-flash}, $\text{temperature}=0$, $\text{seed}=42$). Paired Bootstrap ($B=2000$) yields $\hat{R}(\text{M5}/\text{B0})=0.5421$ (token savings $45.79\%$); McNemar exact test gives $p=0.0312$ (M5 vs. B0) and $p=0.0625$ (M5 vs. M3).}
+\caption{End-to-end benchmark comparison on \texttt{manifest\_full16.jsonl} ($N=16$, \texttt{qwen3.8-flash}, $\text{temperature}=0$, $\text{seed}=42$). Paired Bootstrap ($B=2000$) yields $\hat{R}(\text{M5}/\text{B0})=0.5368$ (token savings $46.32\%$); McNemar exact test gives $p=0.0386$ (M5 vs. B0) and $p=0.1094$ (M5 vs. M3).}
 \label{tab:m5_main_benchmark}
 \resizebox{\textwidth}{!}{%
 \begin{tabular}{lcccccccc}
 \toprule
 System & Accuracy & 95\% Wilson CI & Zoom Rate & Prompt Tok & Comp Tok & Tok Saved vs. B0 & P50 (s) & P95 (s) \\
 \midrule
-B0 (SlidingGrid-FullRes) & 25.0\% & [7.1\%, 59.1\%] & 0.0\% & 16580 & 6435 & +0.0\% & 164.9 & 340.3 \\
-B1 (SlidingGrid-Thumb) & 50.0\% & [21.5\%, 78.5\%] & 0.0\% & 16550 & 5993 & +0.2\% & 144.1 & 246.3 \\
-B2 (Tree-NoZoom) & 25.0\% & [7.1\%, 59.1\%] & 0.0\% & 6077 & 2600 & +63.3\% & 47.0 & 82.7 \\
-M3 (ZoomDoc-Verbal) & 37.5\% & [13.7\%, 69.4\%] & 25.0\% & 6748 & 3356 & +59.3\% & 51.4 & 127.8 \\
+B0 (SlidingGrid-FullRes) & 31.2\% & [14.2\%, 55.6\%] & 0.0\% & 16532 & 6089 & +0.0\% & 170.2 & 302.9 \\
+B1 (SlidingGrid-Thumb) & 43.8\% & [23.1\%, 66.8\%] & 12.5\% & 17385 & 6606 & -5.2\% & 169.4 & 231.9 \\
+B2 (Tree-NoZoom) & 37.5\% & [18.5\%, 61.4\%] & 0.0\% & 5903 & 2802 & +64.3\% & 44.4 & 115.4 \\
+M3 (ZoomDoc-Verbal) & 43.8\% & [23.1\%, 66.8\%] & 31.2\% & 6631 & 2839 & +59.9\% & 50.7 & 127.2 \\
 \midrule
-\textbf{M5 (FoveaDoc, Ours)} & \textbf{100.0\%} & [67.6\%, 100.0\%] & 100.0\% & 8988 & 3572 & +45.8\% & 97.9 & 187.2 \\
+\textbf{M5 (FoveaDoc, Ours)} & \textbf{81.2\%} & [57.0\%, 93.4\%] & 100.0\% & 8874 & 2756 & +46.3\% & 64.6 & 160.5 \\
 \bottomrule
 \end{tabular}}
 \end{table}
 
 \begin{table}[t]
 \centering
-\caption{Component-wise orthogonal ablation of FoveaDoc on \texttt{manifest\_sub8.jsonl} ($N=8$). Disabling S-BOED logprob gating (\texttt{M5\_no\_sboed}) or anisotropic foveation and residual verification (\texttt{M5\_crop}) quantifies the marginal contribution of each subsystem.}
+\caption{Component-wise orthogonal ablation of FoveaDoc on \texttt{manifest\_full16.jsonl} ($N=16$). Disabling S-BOED logprob gating (\texttt{M5\_no\_sboed}) or anisotropic foveation and residual verification (\texttt{M5\_crop}) quantifies the marginal contribution of each subsystem.}
 \label{tab:m5_ablation}
 \resizebox{\textwidth}{!}{%
 \begin{tabular}{lccccccc}
 \toprule
 Variant & Accuracy & 95\% Wilson CI & Zoom Rate & Residual Corr. & Prompt Tok & P50 (s) & McNemar $p$ vs. M5 \\
 \midrule
-B2 (Tree-NoZoom) & 25.0\% & [7.1\%, 59.1\%] & 0.0\% & N/A & 6077 & 47.0 & 0.0312 \\
-M3 (Verbal-Gate + Crop) & 37.5\% & [13.7\%, 69.4\%] & 25.0\% & N/A & 6748 & 51.4 & 0.0625 \\
-M5 w/o S-BOED (Fovea + Residual) & 75.0\% & [40.9\%, 92.8\%] & 37.5\% & 3 & 7073 & 56.3 & 0.5000 \\
-M5 Linear-Crop (S-BOED Only) & 87.5\% & [52.9\%, 97.8\%] & 100.0\% & 0 & 8191 & 92.7 & 1.0000 \\
-\textbf{M5 Full FoveaDoc (Ours)} & \textbf{100.0\%} & [67.6\%, 100.0\%] & 100.0\% & 0 & 8988 & 97.9 & --- \\
+B2 (Tree-NoZoom) & 37.5\% & [18.5\%, 61.4\%] & 0.0\% & N/A & 5903 & 44.4 & 0.0654 \\
+M3 (Verbal-Gate + Crop) & 43.8\% & [23.1\%, 66.8\%] & 31.2\% & N/A & 6631 & 50.7 & 0.1094 \\
+M5 w/o S-BOED (Fovea + Residual) & 87.5\% & [64.0\%, 96.5\%] & 37.5\% & 3 & 6978 & 41.8 & 1.0000 \\
+M5 Linear-Crop (S-BOED Only) & 93.8\% & [71.7\%, 98.9\%] & 100.0\% & 0 & 8107 & 72.4 & 0.6250 \\
+\textbf{M5 Full FoveaDoc (Ours)} & \textbf{81.2\%} & [57.0\%, 93.4\%] & 100.0\% & 1 & 8874 & 64.6 & --- \\
 \bottomrule
 \end{tabular}}
 \end{table}
