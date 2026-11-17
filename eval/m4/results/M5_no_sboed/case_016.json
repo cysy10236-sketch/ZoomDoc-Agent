@@ -38,15 +38,15 @@
   "is_zoomed": false,
   "residual_corrections": 0,
   "cache_hit": true,
-  "render_latency_ms": 15.28,
-  "tree_latency_ms": 2.69,
-  "total_wall_ms": 118328.47,
+  "render_latency_ms": 1275.76,
+  "tree_latency_ms": 4.2,
+  "total_wall_ms": 49542.77,
   "usage": {
     "calls": 3,
-    "prompt_tokens": 5275,
-    "completion_tokens": 6916,
+    "prompt_tokens": 5432,
+    "completion_tokens": 2220,
     "missing_usage_calls": 0,
-    "latency_ms": 118220.11
+    "latency_ms": 48183.09
   },
   "error": null,
   "trace_id": "m4-M5_no_sboed-case_016"

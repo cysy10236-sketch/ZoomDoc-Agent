@@ -31,27 +31,25 @@
     31
   ],
   "selected_pages": [
-    23,
     24,
-    27,
     28
   ],
   "nav_rounds": 1,
   "seek_rounds": 1,
   "inspect_rounds": 1,
-  "zoom_count": 1,
-  "is_zoomed": true,
+  "zoom_count": 0,
+  "is_zoomed": false,
   "residual_corrections": 0,
   "cache_hit": true,
-  "render_latency_ms": 26.5,
-  "tree_latency_ms": 3.57,
-  "total_wall_ms": 150421.96,
+  "render_latency_ms": 1665.54,
+  "tree_latency_ms": 4.54,
+  "total_wall_ms": 37007.95,
   "usage": {
-    "calls": 4,
-    "prompt_tokens": 12235,
-    "completion_tokens": 9328,
+    "calls": 3,
+    "prompt_tokens": 6079,
+    "completion_tokens": 1672,
     "missing_usage_calls": 0,
-    "latency_ms": 150069.6
+    "latency_ms": 35265.08
   },
   "error": null,
   "trace_id": "m4-M5_no_sboed-case_008"

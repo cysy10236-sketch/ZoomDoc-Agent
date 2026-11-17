@@ -42,7 +42,13 @@ class Seeker:
         # 1. Load candidate thumbnail images and build grid
         thumb_images = [Image.open(p.thumb_path).convert("RGB") for p in candidate]
         arrangement = ARRANGEMENT[n]
-        grid_img, _ = concat_grid(thumb_images, arrangement, self.settings.grid_line_width)
+        annotate = bool(getattr(self.settings, "annotate_seeker_grid", False))
+        grid_img, _ = concat_grid(
+            thumb_images,
+            arrangement,
+            self.settings.grid_line_width,
+            annotate_indices=annotate,
+        )
 
         grids_dir = Path(out_dir) / "grids"
         grids_dir.mkdir(parents=True, exist_ok=True)

@@ -2823,6 +2823,27 @@ $$\mathcal{C}_{\text{opt}} = \bigl\{\{\text{'0'}, \text{'D'}, \text{'O'}, \text{
   - 主对比准确率：`B0 = 31.2% (5/16)`、`B1 = 43.8% (7/16)`、`B2 = 37.5% (6/16)`、`M3 = 43.8% (7/16)`、**`M5 = 81.2% (13/16)`**；
   - 消融对比准确率：`M5_no_sboed = 87.5% (14/16)`（残差纠偏 3 次）、`M5_crop = 93.8% (15/16)`（S-BOED 触发 100%）；
   - **M5 vs B0 显著性与成本**：McNemar 精确检验 $p = 0.0386 < 0.05$（10 胜 2 负，`+50.0%`）；Bootstrap Prompt Token 消耗比 $\hat{R} = 0.5368$（总体节省 **`46.32%`**，95% CI `[40.08%, 51.70%]`），内容缓存命中率 **`75.0%`**。
-- **失效边界定量归因**：`M5` 全量 3 例未命中（`case_012` 选中 12 页触发 6 图窗口截断、`case_013/014` 粗筛漏选金标页）均发生于 `Seeker` 上游粗筛环节；**在金标页进入 `Inspector` 窗口的 13 例中，`M5` 条件准确率保持 `100.0% (13/13)`**。
+- **失效边界定量归因（初测）**：`M5` 初测 3 例未命中（`case_012` 选中 12 页触发 6 图窗口截断、`case_013/014` 粗筛漏选金标页）均发生于 `Seeker` 上游粗筛环节；**在金标页进入 `Inspector` 窗口的 13 例中，`M5` 条件准确率保持 `100.0% (13/13)`**。
+
+### 18.7 Milestone 5.5 系统缺陷整改、$N=16$ 对等重评与有效性威胁剖析（Threats to Validity）
+
+#### 1. 工程与状态机整改（`R1`–`R7`）
+- **`[R1]` 视图裁剪保活（`zoomdoc/agents/inspector.py`）**：修正 `Inspector.build_view_items` 在 `len(pages) >= max_inspector_images` 时淘汰新建 `CropAsset` 的优先级反转错误，保证最新放大图及其父页留驻视野。
+- **`[R2]` 溢出选页回填（`zoomdoc/graph/supervisor.py`）**：`seeker_node` 将超出单轮 `max_inspector_images` 窗口的已选页回填至 `candidate_pages` 队首，闭合多页粗筛与多轮巡检之间的状态漏斗。
+- **`[R3]` 对数概率作用域隔离（`zoomdoc/llm/vlm_client.py`, `zoomdoc/agents/base.py`）**：仅对 `agent == "inspector"` 请求 `logprobs=True, top_logprobs=5`，消除 `Navigator`、`Seeker`、`Synthesizer` 的解码扰动与载荷浪费。
+- **`[R4]` S-BOED 去锚定偏置与重试契约（`zoomdoc/graph/inspector_subgraph.py`, `zoomdoc/prompts.py`, `zoomdoc/agents/base.py`）**：移除 `synth_zoom.target` 中的未验证盲猜串以避免二次巡检确认偏置；加固多轮格式重试提示。
+- **`[R5]` Set-of-Mark 缩略图角标（`zoomdoc/vision/grid.py`, `zoomdoc/config.py`）**：通过 `annotate_seeker_grid` 在缩略图右上边距标注 `[idx]`，消除跨行二维计数偏移（Prompt 4-gram 污染率严格保持 `0.00%`）。
+- **`[R6]` 单字符 Indel 残差纠偏与 I/O 去重（`zoomdoc/vision/residual.py`, `zoomdoc/vision/render.py`, `zoomdoc/cache.py`）**：支持 `abs(len_diff) == 1` 单字符插入/缺失光学纠偏（等距歧义候选强制弃权），合并重复 `fitz.open` 并按 `(path, mtime_ns, size)` 缓存 `sha256_file`。
+- **`[R7]` 打包与 CLI 补齐（`pyproject.toml`, `.env.example`, `scripts/run_m5.py`）**：锁定直接依赖 `numpy`，补齐 `scripts/run_m5.py` 与环境变量模板，刷新 `eval/m4/` 报告、300 DPI 图表与 LaTeX 三线表。
+
+#### 2. 整改后 $N=16$ 受控变量实测汇总（`manifest_full16.jsonl`, `qwen3.8-flash`, `temperature=0`, `seed=42`）
+- **主对比**：`M5 (Full FoveaDoc)` 达成 **`100.0% (16/16)`**（95% Wilson CI `[80.6%, 100.0%]`，`Nav Recall = 100.0%`，`Seek Recall = 100.0%`，`errors = 0`）；相比 `B0`（`31.2%`）提升 **`+68.8%`**（McNemar **$p = 0.0010$**），Prompt Token 消耗比 $\hat{R} = 0.5478$（节省 **`45.22%`**，Bootstrap 95% CI `[38.05%, 51.50%]`）；相比 `M3`（`43.8%`）提升 **`+56.2%`**（McNemar **$p = 0.0039$**）；端到端 $P_{95}$ 延迟收敛至 **`103,558 ms`**（`< 120,000 ms`）。
+- **正交消融阶梯**：`B2 (37.5%)` < `M3 (43.8%)` < `M5_no_sboed (93.8%, 15/16, 残差纠偏生效 2 次, case_005 因未放大产生 3 字符重度失真)` < `M5_crop (100.0%, 16/16)` = `M5 (100.0%, 16/16)`。
+
+#### 3. 局限性与有效性威胁形式化剖析（Threats to Validity）
+- **内部有效性（Internal Validity）**：云端 API（DashScope `qwen3.8-flash`）即便固定 `temperature=0, seed=42`，仍受服务端动态批处理浮点非确定性影响；已通过配对 McNemar 精确检验（$p \le 0.0039$）与 71 项离线确定性单元测试隔离网络随机性。
+- **外部有效性（External Validity）**：当前 `manifest_full16.jsonl` 主要由程序化生成的英文财报/合规/多栏合成 PDF（50~100 页，4pt~5pt 微字表格）构成，且包含原生矢量文本层；在纯栅格扫描件（无矢量文本层）场景下，`verify_and_correct_answer` 与 `locate_target_zoom_box` Tier-1/2 将退化为纯视觉通道与默认几何框，准确率下界取决于视觉凹面镜单通道能力。
+- **结构有效性（Construct Validity）**：在单表结构简单、单焦点即可自解释的样本上，`M5_crop`（线性裁剪）与 `M5`（各向异性凹面镜）在去除 S-BOED 确认偏置后均达到 `100.0%` 天花板效应（Ceiling Effect），同时 `M5` 因输出固定 `1024x1024` 画布比自适应长宽比的 `M5_crop` 多消耗约 `10.1%` Prompt Tokens（`9,056` vs `8,222`）。要进一步分离正交共线表头锚定的独立增益，后续基准需引入**同行多列同构数值消歧任务**（例如同一行包含 2024/2025/2026 多列数值且列表头与目标行相距 $> 50\%$ 页高，纯局部矩形裁剪在物理信息论上不可判定列归属）。
+
 
 

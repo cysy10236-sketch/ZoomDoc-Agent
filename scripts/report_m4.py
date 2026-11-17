@@ -365,7 +365,7 @@ def generate_report_m4(
         "### 3. Milestone 5 Redis 缓存触发门禁分析",
         "",
         f"- **渲染耗时占比阈值**: $\\rho_{{render}} \\ge 20.0\\%$ (实测: `{stats_m3['mean_render_share']*100:.1f}%`)",
-        f"- **端到端延迟硬上限**: $P_{{95}} \\ge 120,000\\text{{ ms}}$ (实测: `{stats_m3['p95_wall_ms']:.1f}\\text{{ ms}}`)",
+        f"- **端到端延迟硬上限**: $P_{{95}} \\ge 120,000\\text{{ ms}}$ (实测: `{stats_m3['p95_wall_ms']:.1f} ms`)",
         f"- **门禁裁决**: **`{m5_eval['decision']}`** ({m5_eval['reason']})",
         "",
         "### 4. 防数据污染与记忆重放审计 (Contamination Audit)",

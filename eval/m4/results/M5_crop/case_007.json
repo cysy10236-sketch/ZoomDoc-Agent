@@ -44,16 +44,16 @@
   "zoom_count": 1,
   "is_zoomed": true,
   "residual_corrections": 0,
-  "cache_hit": true,
-  "render_latency_ms": 32.17,
-  "tree_latency_ms": 3.75,
-  "total_wall_ms": 95014.45,
+  "cache_hit": false,
+  "render_latency_ms": 2101.1,
+  "tree_latency_ms": 10.22,
+  "total_wall_ms": 68877.74,
   "usage": {
     "calls": 4,
-    "prompt_tokens": 10073,
-    "completion_tokens": 4397,
+    "prompt_tokens": 10330,
+    "completion_tokens": 2316,
     "missing_usage_calls": 0,
-    "latency_ms": 94789.51
+    "latency_ms": 66564.19
   },
   "error": null,
   "trace_id": "m4-M5_crop-case_007"

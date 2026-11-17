@@ -22,25 +22,24 @@
     85
   ],
   "selected_pages": [
-    84,
     83
   ],
   "nav_rounds": 1,
-  "seek_rounds": 2,
-  "inspect_rounds": 2,
+  "seek_rounds": 1,
+  "inspect_rounds": 1,
   "zoom_count": 1,
   "is_zoomed": true,
   "residual_corrections": 0,
   "cache_hit": true,
-  "render_latency_ms": 9.16,
-  "tree_latency_ms": 6.35,
-  "total_wall_ms": 81723.17,
+  "render_latency_ms": 653.18,
+  "tree_latency_ms": 4.43,
+  "total_wall_ms": 40553.55,
   "usage": {
-    "calls": 6,
-    "prompt_tokens": 8930,
-    "completion_tokens": 2311,
+    "calls": 4,
+    "prompt_tokens": 6667,
+    "completion_tokens": 1287,
     "missing_usage_calls": 0,
-    "latency_ms": 81034.81
+    "latency_ms": 39658.06
   },
   "error": null,
   "trace_id": "m4-M5-case_002"

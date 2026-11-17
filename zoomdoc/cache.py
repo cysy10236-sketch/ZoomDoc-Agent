@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import functools
 import json
+import os
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -40,7 +42,7 @@ class ContentAddressedCache:
         if out_tree_file.is_file():
             return
         out_tree_file.parent.mkdir(parents=True, exist_ok=True)
-        tmp_out = out_tree_file.parent / f"tree.json.tmp.{time.time()}"
+        tmp_out = out_tree_file.parent / f"tree.json.tmp.{time.time_ns()}.{os.getpid()}"
         try:
             tmp_out.write_text(tree_json, encoding="utf-8")
             tmp_out.replace(out_tree_file)
@@ -98,7 +100,7 @@ class ContentAddressedCache:
         tree_json = tree.model_dump_json(indent=2)
 
         # Atomic disk write
-        temp_file = tree_dir / f"{tree_file.name}.tmp.{time.time()}"
+        temp_file = tree_dir / f"{tree_file.name}.tmp.{time.time_ns()}.{os.getpid()}"
         try:
             with open(temp_file, "w", encoding="utf-8") as f:
                 f.write(tree_json)
@@ -213,7 +215,7 @@ class ContentAddressedCache:
                         "thumb_size": thumb_img.size,
                     }
                     meta_json = json.dumps(meta_payload)
-                    tmp_meta = spec_dir / f"{meta_p.name}.tmp.{time.time()}"
+                    tmp_meta = spec_dir / f"{meta_p.name}.tmp.{time.time_ns()}.{os.getpid()}"
                     try:
                         with open(tmp_meta, "w", encoding="utf-8") as mf:
                             mf.write(meta_json)
@@ -244,15 +246,20 @@ class ContentAddressedCache:
         return result, all_hit
 
 
+@functools.lru_cache(maxsize=16)
+def _get_cache_instance(cache_dir: str, redis_url: str | None) -> ContentAddressedCache:
+    return ContentAddressedCache(cache_dir=cache_dir, redis_url=redis_url)
+
+
 def get_cached_or_build_tree(
     pdf_path: str,
     settings: Settings,
     out_dir: str | None = None,
 ) -> tuple[DocumentTree, bool]:
     """Helper to get or build DocumentTree with ContentAddressedCache."""
-    cache = ContentAddressedCache(
-        cache_dir=getattr(settings, "cache_dir", ".cache/zoomdoc"),
-        redis_url=getattr(settings, "redis_url", None),
+    cache = _get_cache_instance(
+        str(Path(getattr(settings, "cache_dir", ".cache/zoomdoc")).resolve()),
+        getattr(settings, "redis_url", None),
     )
     return cache.get_or_build_tree(
         pdf_path=pdf_path,
@@ -268,9 +275,9 @@ def get_cached_or_render_pages(
     settings: Settings,
 ) -> tuple[dict[int, PageAsset], bool]:
     """Helper to get or render PageAssets with ContentAddressedCache."""
-    cache = ContentAddressedCache(
-        cache_dir=getattr(settings, "cache_dir", ".cache/zoomdoc"),
-        redis_url=getattr(settings, "redis_url", None),
+    cache = _get_cache_instance(
+        str(Path(getattr(settings, "cache_dir", ".cache/zoomdoc")).resolve()),
+        getattr(settings, "redis_url", None),
     )
     return cache.get_or_render_pages(
         pdf_path=pdf_path,

@@ -206,7 +206,7 @@ def generate_fovea_vs_crop_figure(
     draw.text((p1x + 40, note_y + 46), "Context Retained: 0% Header / 0% Row Stub", font=font_mono, fill=(154, 52, 18))
     draw.text((p1x + 40, note_y + 82), "Limitation: Pure rectangular crop amputates section", font=font_body, fill=(124, 45, 18))
     draw.text((p1x + 40, note_y + 112), "titles & far-left row labels in wide multi-column", font=font_body, fill=(124, 45, 18))
-    draw.text((p1x + 40, note_y + 142), "financial tables, degrading M5_crop accuracy.", font=font_body, fill=(124, 45, 18))
+    draw.text((p1x + 40, note_y + 142), "financial tables, losing global header/stub alignment.", font=font_body, fill=(124, 45, 18))
 
     # --- Panel (c): Anisotropic Topological Foveation + 1D Jacobian Profile ---
     p2x = panel_specs[2][0]
@@ -412,9 +412,11 @@ def generate_pareto_and_ablation_figure(
         "B2": ("right", 18, 10),
         "M3": ("left", -16, -12),
         "M5_no_sboed": ("right", 165, -12),
-        "M5_crop": ("right", 95, -12),
-        "M5": ("right", 22, -12),
+        "M5_crop": ("left", -22, -30),
+        "M5": ("right", 24, -12),
     }
+
+    placed_boxes: list[tuple[int, int, int, int]] = []
 
     for gid, gname, color, shape in group_defs:
         if gid not in stats_map:
@@ -450,12 +452,34 @@ def generate_pareto_and_ablation_figure(
         lbl = f"{gid}: {acc_pct:.1f}% ({tok:.0f} tok)"
         tb = draw.textbbox((0, 0), lbl, font=font_label)
         tw = tb[2] - tb[0]
+        th = tb[3] - tb[1]
         tx = (cx + dx - tw) if side == "left" else (cx + dx)
-        if gid in ("M5_crop", "M5_no_sboed"):
-            draw.line([(cx + r + 2, cy), (tx - 6, cy)], fill=color, width=2)
-        elif gid == "B1":
-            draw.line([(tx + tw + 6, cy), (cx - r - 2, cy)], fill=color, width=2)
-        draw.text((tx, cy + dy), lbl, font=font_label, fill=color)
+        ty = cy + dy
+
+        # Resolve vertical collisions with previously placed labels
+        for step_offset in (0, 28, -28, 56, -56, 84):
+            cand_y = ty + step_offset
+            cand_box = (tx - 4, cand_y - 2, tx + tw + 4, cand_y + th + 4)
+            collision = any(
+                not (
+                    cand_box[2] < pb[0]
+                    or cand_box[0] > pb[2]
+                    or cand_box[3] < pb[1]
+                    or cand_box[1] > pb[3]
+                )
+                for pb in placed_boxes
+            )
+            if not collision:
+                ty = cand_y
+                placed_boxes.append(cand_box)
+                break
+
+        label_mid_y = ty + 12
+        if side == "right" and gid in ("M5", "M5_crop", "M5_no_sboed"):
+            draw.line([(cx + r + 2, cy), (tx - 6, label_mid_y)], fill=color, width=2)
+        elif side == "left" and gid in ("B1", "M5_crop"):
+            draw.line([(tx + tw + 6, label_mid_y), (cx - r - 2, cy)], fill=color, width=2)
+        draw.text((tx, ty), lbl, font=font_label, fill=color)
 
     # Bottom summary card inside Left Panel
     card_y1 = p_left[3] - 175
@@ -551,7 +575,7 @@ def generate_pareto_and_ablation_figure(
         draw.text((p_right[0] + 55, rcard_y1 + 50), f"1. S-BOED Logprob Gate & Tiered Locate (M5 vs M5_no_sboed): Acc {s_ns['acc']*100:.1f}% -> {m5_acc:.1f}% | Zoom {s_ns['zoom_rate']*100:.1f}% -> {stats_map['M5']['zoom_rate']*100:.1f}%", font=font_small, fill=(51, 65, 85))
     if "M5_crop" in stats_map:
         s_cr = stats_map["M5_crop"]
-        draw.text((p_right[0] + 55, rcard_y1 + 84), f"2. Upstream Seek Recall & Linear Crop: M5_crop {s_cr['acc']*100:.1f}% vs M5 {m5_acc:.1f}% (M5 Seek Recall {stats_map['M5']['seeker_recall']*100:.1f}%)", font=font_small, fill=(51, 65, 85))
+        draw.text((p_right[0] + 55, rcard_y1 + 84), f"2. SoM Grid Indexing & De-Biased Zoom: Seek Recall {stats_map['M5']['seeker_recall']*100:.1f}%, M5 {m5_acc:.1f}% & M5_crop {s_cr['acc']*100:.1f}% (P95 {stats_map['M5']['p95_wall_ms']/1000.0:.1f}s)", font=font_small, fill=(51, 65, 85))
     draw.text((p_right[0] + 55, rcard_y1 + 118), f"3. Content Cache & Tree Flattening: {stats_map['M5']['cache_hit_rate']*100:.1f}% warm cache hit rate, tree_latency <= 10 ms.", font=font_small, fill=(51, 65, 85))
 
     out_path.parent.mkdir(parents=True, exist_ok=True)

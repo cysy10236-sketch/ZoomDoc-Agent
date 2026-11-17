@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import json
-from typing import Callable, TypeVar
+from typing import Any, Callable, TypeVar
 
 from pydantic import TypeAdapter, ValidationError
 
 from zoomdoc.errors import AgentOutputError
 from zoomdoc.llm.json_parser import extract_json
-from zoomdoc.llm.vlm_client import Part, VLMClient, VLMResponse
+from zoomdoc.llm.vlm_client import OpenAICompatVLM, Part, VLMClient, VLMResponse
 from zoomdoc.observability import TraceLogger
 from zoomdoc.schemas import VLMUsage
 
@@ -39,7 +39,14 @@ def call_with_schema(
 
     for attempt in range(1, max_attempts + 1):
         with logger.span(agent) as span:
-            resp = vlm.generate(parts, extra_messages=extra_messages if extra_messages else None)
+            if isinstance(vlm, OpenAICompatVLM):
+                resp = vlm.generate(
+                    parts,
+                    extra_messages=extra_messages if extra_messages else None,
+                    request_logprobs=(agent == "inspector"),
+                )
+            else:
+                resp = vlm.generate(parts, extra_messages=extra_messages if extra_messages else None)
             if usage_sink is not None:
                 usage_sink.append(resp.usage)
             last_raw = resp.text
@@ -83,9 +90,14 @@ def call_with_schema(
                 )
 
                 if attempt < max_attempts:
+                    schema_hint = ""
+                    if agent == "inspector":
+                        schema_hint = (
+                            ' Include top-level "action" ("answer", "zoom", or "seek") and all required fields for that branch.'
+                        )
                     correction_instruction = (
-                        f"Your output was invalid: {last_error}. "
-                        "Return only valid JSON strictly matching the requested format."
+                        f"Your output was invalid: {last_error}.{schema_hint} "
+                        "Refer to the input provided in the first user message above and return only valid JSON strictly matching the requested format."
                     )
                     extra_messages = [
                         {"role": "assistant", "content": resp.text},

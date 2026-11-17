@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import hashlib
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -13,13 +14,20 @@ if TYPE_CHECKING:
     from zoomdoc.config import Settings
 
 
-def sha256_file(path: str) -> str:
-    """Calculate SHA256 hex digest of a file."""
+@functools.lru_cache(maxsize=128)
+def _sha256_cached(resolved_path: str, mtime_ns: int, size: int) -> str:
     h = hashlib.sha256()
-    with open(path, "rb") as f:
+    with open(resolved_path, "rb") as f:
         while chunk := f.read(65536):
             h.update(chunk)
     return h.hexdigest()
+
+
+def sha256_file(path: str) -> str:
+    """Calculate SHA256 hex digest of a file (invalidated automatically on mtime/size change)."""
+    p = Path(path).resolve()
+    st = p.stat()
+    return _sha256_cached(str(p), st.st_mtime_ns, st.st_size)
 
 
 def resize_long_side(img: Image.Image, long_side: int) -> Image.Image:

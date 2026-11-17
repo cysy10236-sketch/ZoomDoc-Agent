@@ -145,7 +145,7 @@ def inspect_node(
                 ),
                 image=ref_idx,
                 bbox_2d=vlm_bbox,
-                target=output.answer,
+                target="exact character-by-character verification of the target value matching all question conditions",
             )
             return {
                 "last_output": synth_zoom,

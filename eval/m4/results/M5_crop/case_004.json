@@ -42,15 +42,15 @@
   "is_zoomed": true,
   "residual_corrections": 0,
   "cache_hit": true,
-  "render_latency_ms": 26.01,
-  "tree_latency_ms": 4.26,
-  "total_wall_ms": 90329.5,
+  "render_latency_ms": 1889.24,
+  "tree_latency_ms": 3.66,
+  "total_wall_ms": 95065.16,
   "usage": {
     "calls": 4,
-    "prompt_tokens": 9069,
-    "completion_tokens": 3873,
+    "prompt_tokens": 9283,
+    "completion_tokens": 3218,
     "missing_usage_calls": 0,
-    "latency_ms": 90119.56
+    "latency_ms": 93043.63
   },
   "error": null,
   "trace_id": "m4-M5_crop-case_004"

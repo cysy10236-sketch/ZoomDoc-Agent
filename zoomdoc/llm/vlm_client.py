@@ -163,7 +163,11 @@ class OpenAICompatVLM:
         )
 
     def generate(
-        self, parts: list[Part], *, extra_messages: list[dict] | None = None
+        self,
+        parts: list[Part],
+        *,
+        extra_messages: list[dict] | None = None,
+        request_logprobs: bool | None = None,
     ) -> VLMResponse:
         content_items: list[dict] = []
         for part in parts:
@@ -193,7 +197,15 @@ class OpenAICompatVLM:
             "seed": self.settings.vlm_seed,
             "max_tokens": self.settings.vlm_max_tokens,
         }
-        if getattr(self.settings, "enable_logprobs_entropy", False):
+        use_logprobs = (
+            bool(getattr(self.settings, "enable_logprobs_entropy", False))
+            if request_logprobs is None
+            else (
+                bool(request_logprobs)
+                and bool(getattr(self.settings, "enable_logprobs_entropy", False))
+            )
+        )
+        if use_logprobs:
             req_kwargs["logprobs"] = True
             req_kwargs["top_logprobs"] = 5
 
@@ -213,7 +225,7 @@ class OpenAICompatVLM:
 
         max_ent: float | None = None
         mean_ent: float | None = None
-        if getattr(self.settings, "enable_logprobs_entropy", False):
+        if use_logprobs:
             try:
                 logprobs_obj = getattr(choice, "logprobs", None)
                 content_list = getattr(logprobs_obj, "content", None) if logprobs_obj else None

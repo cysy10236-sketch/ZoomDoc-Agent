@@ -54,25 +54,35 @@ class Inspector:
         """Construct image sequence up to max_inspector_images.
 
         Order: pages (ascending page number) followed by crops (creation order).
-        Overflow policy: drop earliest crops first, then drop largest page numbers.
+        Overflow policy:
+        - Reserve at least 1 slot for full pages when pages exist, keeping up to
+          (max_inspector_images - 1) most recent crops (dropping earliest crops first).
+        - Fill remaining slots with parent pages of kept crops first, then earliest
+          remaining pages in ascending page order (dropping largest unreferenced pages).
         """
+        max_limit = max(1, max_inspector_images)
         sorted_pages = sorted(pages, key=lambda p: p.page)
-        page_items: list[ViewItem] = [("page", p.page) for p in sorted_pages]
-        crop_items: list[ViewItem] = [("crop", c.crop_id) for c in crops]
 
-        total_items = page_items + crop_items
-        max_limit = max_inspector_images
+        if not sorted_pages:
+            kept_crops = crops[-max_limit:]
+            return InspectorView(items=[("crop", c.crop_id) for c in kept_crops])
 
-        while len(total_items) > max_limit:
-            # First drop earliest crop if any crop exists
-            crop_indices = [i for i, it in enumerate(total_items) if it[0] == "crop"]
-            if crop_indices:
-                total_items.pop(crop_indices[0])
-            else:
-                # Otherwise drop the largest page number (last page item)
-                total_items.pop(-1)
+        max_crop_slots = max(0, max_limit - 1)
+        kept_crops = crops[-max_crop_slots:] if max_crop_slots > 0 else []
+        page_slots = max_limit - len(kept_crops)
 
-        return InspectorView(items=total_items)
+        if len(sorted_pages) <= page_slots:
+            kept_pages = sorted_pages
+        else:
+            crop_parent_nums = {c.page for c in kept_crops}
+            priority_pages = [p for p in sorted_pages if p.page in crop_parent_nums]
+            other_pages = [p for p in sorted_pages if p.page not in crop_parent_nums]
+            chosen = (priority_pages + other_pages)[:page_slots]
+            kept_pages = sorted(chosen, key=lambda p: p.page)
+
+        page_items: list[ViewItem] = [("page", p.page) for p in kept_pages]
+        crop_items: list[ViewItem] = [("crop", c.crop_id) for c in kept_crops]
+        return InspectorView(items=page_items + crop_items)
 
     def build_view(self, pages: list[PageAsset], crops: list[CropAsset]) -> InspectorView:
         return self.build_view_items(pages, crops, self.settings.max_inspector_images)

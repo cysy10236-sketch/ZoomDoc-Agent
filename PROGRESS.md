@@ -527,10 +527,42 @@
 | `M5_crop` (S-BOED + Linear Crop) | **93.8% (15/16)** | [71.7%, 98.9%] | 100.0% | 0 | 8,107 | 72.4 / 171.5 |
 | **`M5 (Full FoveaDoc)`** | **81.2% (13/16)** | **[57.0%, 93.4%]** | **100.0%** | **1** | **8,874** | **64.6 / 160.5** |
 
-- **统计学检验与瓶颈定位（$N=16$）**：
+- **统计学检验与瓶颈定位（$N=16$ 初测）**：
   - **M5 vs B0**：McNemar 双侧精确检验 **$p = 0.0386 < 0.05$**（M5 胜 10 例，B0 胜 2 例，准确率差值 **`+50.0%`**）；Paired Bootstrap 消耗比 $\hat{R} = 0.5368$（节省 Prompt Token **`46.32%`**，95% CI `[40.08%, 51.70%]`）。
   - **M5 vs M3**：McNemar $p = 0.1094$（M5 胜 8 例，M3 胜 2 例，准确率差值 **`+37.5%`**）。
   - **失效根因解剖**：`M5` 全部 3 例错题（`case_012`、`case_013`、`case_014`）均发生在上游 `Seeker` 缩略图粗筛或 `max_inspector_images=6` 截断前（`Seek Recall = 87.5%`）；在金标页实际送达 `Inspector` 视野的 13 例中，**条件准确率达到 `100.0% (13/13)`**。内容寻址缓存命中率提升至 **`75.0%`**，渲染耗时占比降至 **`2.3%`**。
+
+---
+
+### 6. Milestone 5.5 架构深度审计整改与 $N=16$ 受控变量重评闭环（2026-11-18）
+
+针对 $N=16$ 初测暴露的 `M5` 负向消融反转（`M5 = 81.2%` vs `M5_crop = 93.8%`），逐条追踪 `trace.jsonl` 定位并修复 7 项底层系统缺陷（`R1`–`R7`）：
+1. **`[R1]` `Inspector.build_view_items` 裁剪图驱逐反转修复（`zoomdoc/agents/inspector.py`）**：修复当选中页数 $\ge$ `max_inspector_images`（6）时，`while len > 6` 循环优先弹出新建 `zoom` 裁剪图导致放大结果在 `inspect_node` 前被静默丢弃的缺陷；改为优先保留最近 `max_inspector_images - 1` 张裁剪图及其父页。
+2. **`[R2]` `seeker_node` 溢出选页保序回填（`zoomdoc/graph/supervisor.py`）**：单轮送入 `Inspector` 的 `selected_pages` 截断至 `max_inspector_images`，溢出已选页保序留存于 `candidate_pages` 队首，消除 `case_012` 中 `Seeker` 多选时金标页既未进入 `Inspector` 又从 `candidate_pages` 永久丢失的状态漏斗断裂。
+3. **`[R3]` `logprobs` 严格限定于 `inspector` 作用域（`zoomdoc/llm/vlm_client.py` & `zoomdoc/agents/base.py`）**：`Navigator`、`Seeker`、`Synthesizer` 调用禁用冗余 `logprobs=True, top_logprobs=5`，消除上游粗筛长思维链解码扰动与载荷开销。
+4. **`[R4]` S-BOED 去锚定偏置校验目标与多轮重试格式锚定（`zoomdoc/graph/inspector_subgraph.py`, `zoomdoc/prompts.py`, `zoomdoc/agents/base.py`）**：禁止将低分辨率未校验盲猜串写入 `synth_zoom.target`（消除 `M5_crop / case_005` 与 `M5 / case_015` 确认偏置），补充凹面镜共线表头提示与 `inspector` 重试顶层 `action` 字段锚点。
+5. **`[R5]` Set-of-Mark 缩略图右上角索引角标与粗细粒度职责边界（`zoomdoc/vision/grid.py`, `zoomdoc/agents/seeker.py`, `zoomdoc/config.py`）**：新增 `annotate_seeker_grid`（`run_m5` 默认启用），在缩略图右上空白边距绘制 `[idx]` 角标，根除二维网格跨行计数错位（`case_014`）；Prompt 污染审计保持 `0.00%` 精确匹配与 `0.00%` 字符 4-gram 重叠。
+6. **`[R6]` 单字符插入/缺失（Indel）光学残差支持与文件哈希/PDF 句柄去重（`zoomdoc/vision/residual.py`, `zoomdoc/vision/render.py`, `zoomdoc/cache.py`）**：打通 `abs(len_diff) == 1` 的单字符 Indel 残差修正与唯一下确界判据（同距离歧义候选强制弃权），合并 `verify_and_correct_answer` 内部重复 `fitz.open` 并对 `sha256_file` 建立 `(path, mtime_ns, size)` 缓存。
+7. **`[R7]` 工程交付闭环（`pyproject.toml`, `.env.example`, `scripts/run_m5.py`, `scripts/report_m4.py`, `scripts/generate_m5_assets.py`）**：补齐 `pyproject.toml` 缺失的 `numpy` 直接依赖、同步 `.env.example` M5 配置、新增 `scripts/run_m5.py` CLI 入口，并修正报告反引号内转义字符与图表标签防碰撞布局。
+
+- **确定性回归验证**：`python -m compileall -q zoomdoc scripts tests` 退出码 `0`；`python -m pytest -q` 全量 **`71 passed`**（原 65 项零回归 + 新增 `R1`–`R6` 6 项单元测试全部通过）。
+- **受控变量全量重评结果**（`eval/m4/manifest_full16.jsonl`, $N=16$, `qwen3.8-flash`, `temperature=0`, `seed=42`，`M5_no_sboed` / `M5_crop` / `M5` 三组独立缓存对等全量重跑，共 48 次物理调用，`errors = 0`）：
+
+| 系统 / 变体 | 准确率 (Accuracy) | 95% Wilson CI | Seek Recall | Zoom 触发率 | 残差纠偏 | 平均 Prompt Tokens | P50 / P95 耗时 (s) | McNemar $p$ (vs B0 / vs M3) |
+|---|---|---|---|---|---|---|---|---|
+| `B0 (SlidingGrid-FullRes)` | 31.2% (5/16) | [14.2%, 55.6%] | 75.0% | 0.0% | N/A | 16,532 | 170.2 / 302.9 | --- / 0.6875 |
+| `B1 (SlidingGrid-Thumb)` | 43.8% (7/16) | [23.1%, 66.8%] | 81.2% | 12.5% | N/A | 17,385 | 169.4 / 231.9 | --- / 1.0000 |
+| `B2 (Tree-NoZoom)` | 37.5% (6/16) | [18.5%, 61.4%] | 100.0% | 0.0% | N/A | 5,903 | 44.4 / 115.4 | --- / 1.0000 |
+| `M3 (Verbal-Gate + Crop)` | 43.8% (7/16) | [23.1%, 66.8%] | 100.0% | 31.2% | N/A | 6,631 | 50.7 / 127.2 | 0.6875 / --- |
+| `M5_no_sboed` (w/o S-BOED) | 93.8% (15/16) | [71.7%, 98.9%] | 100.0% | 50.0% | **2** | 7,186 | 49.5 / 88.2 | --- / --- |
+| `M5_crop` (S-BOED + Linear Crop) | **100.0% (16/16)** | [80.6%, 100.0%] | 100.0% | 100.0% | 0 | 8,222 | 59.9 / 100.6 | --- / --- |
+| **`M5 (Full FoveaDoc)`** | **100.0% (16/16)** | **[80.6%, 100.0%]** | **100.0%** | **100.0%** | **0** | **9,056** | **70.6 / 103.6** | **0.0010 / 0.0039** |
+
+- **核心统计检验**：
+  - **M5 vs B0**：11 胜 0 负，准确率提升 **`+68.8%`**，McNemar 双侧精确检验 **$p = 0.0010 < 0.01$**；Paired Bootstrap 消耗比 $\hat{R} = 0.5478$，节省 Prompt Token **`45.22%`**（95% CI `[38.05%, 51.50%]`）。
+  - **M5 vs M3**：9 胜 0 负，准确率提升 **`+56.2%`**，McNemar 双侧精确检验 **$p = 0.0039 < 0.01$**。
+  - **尾部延迟收敛**：`M5` 端到端 $P_{95}$ 延迟由整改前的 `160.5 s` 降至 **`103.6 s`**（低于 `120.0 s` 门禁阈值），内容寻址缓存命中率保持 **`75.0%`**。
+
 
 
 

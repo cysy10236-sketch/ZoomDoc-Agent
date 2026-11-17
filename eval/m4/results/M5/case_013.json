@@ -9,10 +9,10 @@
   "font_pt": 4.0,
   "query_type": "direct_section",
   "status": "answered",
-  "answer": "DIS-0024-XX",
-  "is_correct": false,
+  "answer": "ZD-8446-RT",
+  "is_correct": true,
   "reference_pages": [
-    24
+    27
   ],
   "candidate_pages": [
     20,
@@ -32,24 +32,25 @@
     34
   ],
   "selected_pages": [
-    24
+    24,
+    27
   ],
   "nav_rounds": 1,
-  "seek_rounds": 1,
-  "inspect_rounds": 1,
+  "seek_rounds": 2,
+  "inspect_rounds": 2,
   "zoom_count": 1,
   "is_zoomed": true,
   "residual_corrections": 0,
   "cache_hit": true,
-  "render_latency_ms": 2181.71,
-  "tree_latency_ms": 2.79,
-  "total_wall_ms": 47627.8,
+  "render_latency_ms": 2201.09,
+  "tree_latency_ms": 3.89,
+  "total_wall_ms": 100294.2,
   "usage": {
-    "calls": 4,
-    "prompt_tokens": 7824,
-    "completion_tokens": 1501,
+    "calls": 6,
+    "prompt_tokens": 12778,
+    "completion_tokens": 3683,
     "missing_usage_calls": 0,
-    "latency_ms": 45154.72
+    "latency_ms": 97717.4
   },
   "error": null,
   "trace_id": "m4-M5-case_013"

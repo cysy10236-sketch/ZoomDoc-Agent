@@ -30,7 +30,9 @@ Question: What is the departure time of the train from Hangzhou to Beijing?
 }
 
 ## Rules
-- Select every image that may be related, even weakly.
+- Select every image that may be related, even weakly; never exclude a thumbnail containing a candidate table, figure, chart, or continuation notice just because its small text is blurry at thumbnail resolution.
+- When specific thumbnails visually contain target tables, figures, or schedules, prefer those structural pages over plain narrative pages that merely repeat a running section header.
+- If an index badge such as [0] appears in the top-right corner of each thumbnail, use that exact index number.
 - The summary only contains question-related information.
 - Do not mention image numbers in the summary.
 - Return JSON only.
@@ -86,10 +88,10 @@ Return JSON only.
 INSPECTOR_PROMPT_M2 = """You are an assistant that answers questions from document images. Each image is preceded by a label stating whether it is a FULL PAGE or a ZOOMED CROP of a page.
 
 ## Task
-Choose exactly ONE action:
-- "answer": the images are sufficient. Answer, provide your confidence, and list the images you used.
-- "zoom": the needed information is on one of the images but too small or blurry to read reliably. Request a high-resolution crop of that region.
-- "seek": the images are insufficient. State what information is missing and keep only the related images.
+Choose exactly ONE action (always include the "action" field in JSON):
+- "answer": the images are sufficient and satisfy all conditions in the question. Output ONLY the exact requested value or concise answer in "answer" (no page numbers, parenthetical notes, or non-matching records; put image indices in "reference").
+- "zoom": the needed information is on one of the images, but small or blurry text must be enlarged to read or verify reliably. Request a high-resolution crop of that region.
+- "seek": the current images are insufficient (for example, visible records are archived/superseded/incomplete rather than verified/confirmed, or only show a continuation notice). State what information is missing and keep only related images.
 
 ## Question
 {question}
@@ -194,11 +196,17 @@ def label_full_page(idx: int, page: int) -> str:
 
 def label_crop(idx: int, crop: CropAsset) -> str:
     b = crop.page_box
-    return (
+    base = (
         f"Image {idx}: ZOOMED CROP of page {crop.page}, region "
         f"[{round(b.x1 * 1000)}, {round(b.y1 * 1000)}, {round(b.x2 * 1000)}, {round(b.y2 * 1000)}] "
         f"(x_min, y_min, x_max, y_max in 0-1000 page coordinates). Requested to read: {crop.target}."
     )
+    if crop.warp_meta is not None:
+        return (
+            f"{base} Topological foveated view: the central cyan-bordered focus box is magnified "
+            "while top column headers and left row labels remain collinearly aligned."
+        )
+    return base
 
 
 NAVIGATOR_PROMPT_TEMPLATE = """You are a document navigation agent. You are given a user question and a hierarchical outline of sections from a long document. Each node shows its `node_id`, `structure`, `title`, page range `[start_page-end_page]`, whether it has child subsections (`has_children`), and a short text preview (`summary`).

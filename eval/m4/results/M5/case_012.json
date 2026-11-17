@@ -9,10 +9,10 @@
   "font_pt": 5.0,
   "query_type": "direct_section",
   "status": "answered",
-  "answer": "DIS-0070-XXX",
-  "is_correct": false,
+  "answer": "ZD-4734-PX",
+  "is_correct": true,
   "reference_pages": [
-    70
+    74
   ],
   "candidate_pages": [
     68,
@@ -30,18 +30,8 @@
     80
   ],
   "selected_pages": [
-    68,
-    69,
     70,
-    71,
-    72,
-    73,
-    74,
-    75,
-    76,
-    77,
-    78,
-    79
+    74
   ],
   "nav_rounds": 1,
   "seek_rounds": 1,
@@ -50,15 +40,15 @@
   "is_zoomed": true,
   "residual_corrections": 0,
   "cache_hit": true,
-  "render_latency_ms": 1819.22,
-  "tree_latency_ms": 2.23,
-  "total_wall_ms": 92399.22,
+  "render_latency_ms": 1811.96,
+  "tree_latency_ms": 3.42,
+  "total_wall_ms": 87921.9,
   "usage": {
     "calls": 4,
-    "prompt_tokens": 14288,
-    "completion_tokens": 3552,
+    "prompt_tokens": 9643,
+    "completion_tokens": 3181,
     "missing_usage_calls": 0,
-    "latency_ms": 90198.96
+    "latency_ms": 85719.69
   },
   "error": null,
   "trace_id": "m4-M5-case_012"

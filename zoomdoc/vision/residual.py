@@ -62,6 +62,37 @@ def optical_edit_distance(s1: str, s2: str) -> float:
     return round(float(dp[n][m]), 2)
 
 
+def _extract_doc_page_tokens(
+    doc: fitz.Document,
+    page_num: int,
+    page_box: NormBBox | None = None,
+    expand_margin: float = 0.05,
+) -> list[str]:
+    if not (1 <= page_num <= len(doc)):
+        return []
+
+    page = doc.load_page(page_num - 1)
+    page_rect = page.rect
+
+    if page_box is not None:
+        x1 = max(0.0, page_box.x1 - expand_margin) * page_rect.width
+        y1 = max(0.0, page_box.y1 - expand_margin) * page_rect.height
+        x2 = min(1.0, page_box.x2 + expand_margin) * page_rect.width
+        y2 = min(1.0, page_box.y2 + expand_margin) * page_rect.height
+        clip_rect = fitz.Rect(x1, y1, x2, y2)
+        words = page.get_text("words", clip=clip_rect)
+    else:
+        words = page.get_text("words")
+
+    tokens: list[str] = []
+    for item in words:
+        raw_word = item[4]
+        cleaned = re.sub(r"^[^\w\-.]+|[^\w\-.]+$", "", raw_word)
+        if cleaned:
+            tokens.append(cleaned)
+    return tokens
+
+
 def extract_bbox_vector_tokens(
     pdf_path: str,
     page_num: int,
@@ -78,32 +109,10 @@ def extract_bbox_vector_tokens(
     except (OSError, RuntimeError):
         return []
 
-    if not (1 <= page_num <= len(doc)):
+    try:
+        return _extract_doc_page_tokens(doc, page_num, page_box, expand_margin)
+    finally:
         doc.close()
-        return []
-
-    page = doc.load_page(page_num - 1)
-    page_rect = page.rect
-
-    if page_box is not None:
-        x1 = max(0.0, page_box.x1 - expand_margin) * page_rect.width
-        y1 = max(0.0, page_box.y1 - expand_margin) * page_rect.height
-        x2 = min(1.0, page_box.x2 + expand_margin) * page_rect.width
-        y2 = min(1.0, page_box.y2 + expand_margin) * page_rect.height
-        clip_rect = fitz.Rect(x1, y1, x2, y2)
-        words = page.get_text("words", clip=clip_rect)
-    else:
-        words = page.get_text("words")
-
-    doc.close()
-
-    tokens: list[str] = []
-    for item in words:
-        raw_word = item[4]
-        cleaned = re.sub(r"^[^\w\-.]+|[^\w\-.]+$", "", raw_word)
-        if cleaned:
-            tokens.append(cleaned)
-    return tokens
 
 
 def verify_and_correct_answer(
@@ -123,20 +132,26 @@ def verify_and_correct_answer(
     if not answer or not pdf_path or not Path(pdf_path).is_file():
         return answer, False
 
+    try:
+        doc = fitz.open(pdf_path)
+    except (OSError, RuntimeError):
+        return answer, False
+
     candidate_tokens: set[str] = set()
     bbox_regions = [reg for reg in cited_regions if reg.page_box is not None]
 
-    if bbox_regions:
-        # Strictly extract only from designated geometric micro-boxes
-        for reg in bbox_regions:
-            tokens = extract_bbox_vector_tokens(pdf_path, reg.page, reg.page_box)
-            candidate_tokens.update(tokens)
-    else:
-        # Only fallback to whole page tokens if no geometric bounding boxes exist
-        pages_to_scan = sorted(list(set(reference_pages) | {reg.page for reg in cited_regions}))
-        for p in pages_to_scan:
-            tokens = extract_bbox_vector_tokens(pdf_path, p, None)
-            candidate_tokens.update(tokens)
+    try:
+        if bbox_regions:
+            # Strictly extract only from designated geometric micro-boxes
+            for reg in bbox_regions:
+                candidate_tokens.update(_extract_doc_page_tokens(doc, reg.page, reg.page_box))
+        else:
+            # Only fallback to whole page tokens if no geometric bounding boxes exist
+            pages_to_scan = sorted(list(set(reference_pages) | {reg.page for reg in cited_regions}))
+            for p in pages_to_scan:
+                candidate_tokens.update(_extract_doc_page_tokens(doc, p, None))
+    finally:
+        doc.close()
 
     if not candidate_tokens:
         return answer, False
@@ -159,21 +174,38 @@ def verify_and_correct_answer(
                 corrected = True
             continue
 
-        # Look for candidate with same hyphen structure and length
+        # Look for candidate with identical hyphen layout or single-character insertion/deletion
         tok_hyphen_pos = [i for i, ch in enumerate(tok) if ch == "-"]
+        tok_seg_lens = [len(seg) for seg in tok.split("-")]
         matched_cands: list[tuple[float, str]] = []
 
         for cand in sorted_candidates:
-            if len(cand) == len(tok) and [i for i, ch in enumerate(cand) if ch == "-"] == tok_hyphen_pos:
+            cand_hyphen_pos = [i for i, ch in enumerate(cand) if ch == "-"]
+            same_exact_layout = len(cand) == len(tok) and cand_hyphen_pos == tok_hyphen_pos
+            same_single_indel_layout = (
+                abs(len(cand) - len(tok)) == 1
+                and len(cand_hyphen_pos) == len(tok_hyphen_pos) >= 1
+                and all(
+                    abs(a - b) <= 1
+                    for a, b in zip(tok_seg_lens, (len(s) for s in cand.split("-")))
+                )
+            )
+            if same_exact_layout or same_single_indel_layout:
                 d = optical_edit_distance(tok, cand)
                 if 0.0 < d <= max_optical_distance:
                     matched_cands.append((d, cand))
 
         if matched_cands:
             matched_cands.sort(key=lambda x: (x[0], x[1]))
-            best_cand = matched_cands[0][1]
-            current_answer = current_answer.replace(tok, best_cand, 1)
-            corrected = True
+            is_unique_best = (
+                len(matched_cands) == 1
+                or matched_cands[0][0] < matched_cands[1][0]
+                or matched_cands[0][1].upper() == matched_cands[1][1].upper()
+            )
+            if is_unique_best:
+                best_cand = matched_cands[0][1]
+                current_answer = current_answer.replace(tok, best_cand, 1)
+                corrected = True
 
     return current_answer, corrected
 
@@ -234,11 +266,17 @@ def locate_target_zoom_box(
                     hit_rects.append(fitz.Rect(w[0], w[1], w[2], w[3]))
                     break
 
-                # Approximate match with same hyphen structure and length
+                # Approximate match with identical hyphen structure or single-char indel
                 w_hyphens = [i for i, ch in enumerate(cleaned_w) if ch == "-"]
-                if len(cleaned_w) == len(code_clean) and w_hyphens == code_hyphen_pos:
+                same_exact = len(cleaned_w) == len(code_clean) and w_hyphens == code_hyphen_pos
+                same_indel = (
+                    abs(len(cleaned_w) - len(code_clean)) == 1
+                    and len(w_hyphens) == len(code_hyphen_pos) >= 1
+                )
+                if same_exact or same_indel:
                     d = optical_edit_distance(code_clean, cleaned_w)
-                    if d < best_dist and d <= 2.0:
+                    dist_cap = 2.0 if same_exact else 2.5
+                    if d < best_dist and d <= dist_cap:
                         best_dist = d
                         best_word_rect = fitz.Rect(w[0], w[1], w[2], w[3])
 

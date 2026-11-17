@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import TYPE_CHECKING
 
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 if TYPE_CHECKING:
     pass
@@ -45,10 +45,42 @@ ORDINALS: list[str] = [
 ]
 
 
+def _stamp_index_badge(img: Image.Image, idx: int) -> Image.Image:
+    """Draw a compact high-contrast [idx] badge in the top-right margin of a thumbnail copy."""
+    annotated = img.copy()
+    draw = ImageDraw.Draw(annotated)
+    w, _ = annotated.size
+    font_px = max(15, min(26, round(w * 0.058)))
+    try:
+        font = ImageFont.load_default(size=font_px)
+    except TypeError:
+        font = ImageFont.load_default()
+
+    label = f"[{idx}]"
+    bbox = draw.textbbox((0, 0), label, font=font)
+    tw = bbox[2] - bbox[0]
+    th = bbox[3] - bbox[1]
+    pad_x, pad_y = 6, 4
+    box_w = tw + 2 * pad_x
+    box_h = th + 2 * pad_y
+    x0 = max(2, w - box_w - 6)
+    y0 = 6
+    draw.rectangle(
+        [x0, y0, x0 + box_w, y0 + box_h],
+        fill=(15, 23, 42),
+        outline=(255, 255, 255),
+        width=1,
+    )
+    draw.text((x0 + pad_x - bbox[0], y0 + pad_y - bbox[1]), label, fill=(255, 255, 255), font=font)
+    return annotated
+
+
 def concat_grid(
     images: list[Image.Image],
     arrangement: tuple[int, int],
     line_width: int,
+    *,
+    annotate_indices: bool = False,
 ) -> tuple[Image.Image, tuple[int, int]]:
     """Compose thumbnail images into a single grid canvas with black dividers.
 
@@ -66,11 +98,15 @@ def concat_grid(
     most_common_size = Counter(sizes).most_common(1)[0][0]
     cell_w, cell_h = most_common_size
 
-    # 2. Resize all to most common size
+    # 2. Resize all to most common size (and optionally stamp Set-of-Mark index badges)
     images_resized = [
         img.resize(most_common_size, Image.Resampling.LANCZOS) if img.size != most_common_size else img
         for img in images
     ]
+    if annotate_indices:
+        images_resized = [
+            _stamp_index_badge(im, idx) for idx, im in enumerate(images_resized[:total_cells])
+        ]
 
     # 3. Pad with white background or truncate
     if len(images_resized) < total_cells:

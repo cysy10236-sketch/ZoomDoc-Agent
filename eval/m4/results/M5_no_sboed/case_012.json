@@ -31,7 +31,6 @@
   ],
   "selected_pages": [
     70,
-    71,
     74
   ],
   "nav_rounds": 1,
@@ -41,15 +40,15 @@
   "is_zoomed": false,
   "residual_corrections": 0,
   "cache_hit": true,
-  "render_latency_ms": 17.77,
-  "tree_latency_ms": 2.74,
-  "total_wall_ms": 166947.61,
+  "render_latency_ms": 1990.89,
+  "tree_latency_ms": 3.82,
+  "total_wall_ms": 61794.8,
   "usage": {
-    "calls": 4,
-    "prompt_tokens": 10242,
-    "completion_tokens": 9755,
+    "calls": 3,
+    "prompt_tokens": 6235,
+    "completion_tokens": 2317,
     "missing_usage_calls": 0,
-    "latency_ms": 166868.33
+    "latency_ms": 59711.4
   },
   "error": null,
   "trace_id": "m4-M5_no_sboed-case_012"

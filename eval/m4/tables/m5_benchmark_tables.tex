@@ -3,7 +3,7 @@
 
 \begin{table}[t]
 \centering
-\caption{End-to-end benchmark comparison on \texttt{manifest\_full16.jsonl} ($N=16$, \texttt{qwen3.8-flash}, $\text{temperature}=0$, $\text{seed}=42$). Paired Bootstrap ($B=2000$) yields $\hat{R}(\text{M5}/\text{B0})=0.5368$ (token savings $46.32\%$); McNemar exact test gives $p=0.0386$ (M5 vs. B0) and $p=0.1094$ (M5 vs. M3).}
+\caption{End-to-end benchmark comparison on \texttt{manifest\_full16.jsonl} ($N=16$, \texttt{qwen3.8-flash}, $\text{temperature}=0$, $\text{seed}=42$). Paired Bootstrap ($B=2000$) yields $\hat{R}(\text{M5}/\text{B0})=0.5478$ (token savings $45.22\%$); McNemar exact test gives $p=0.0010$ (M5 vs. B0) and $p=0.0039$ (M5 vs. M3).}
 \label{tab:m5_main_benchmark}
 \resizebox{\textwidth}{!}{%
 \begin{tabular}{lcccccccc}
@@ -15,7 +15,7 @@ B1 (SlidingGrid-Thumb) & 43.8\% & [23.1\%, 66.8\%] & 12.5\% & 17385 & 6606 & -5.
 B2 (Tree-NoZoom) & 37.5\% & [18.5\%, 61.4\%] & 0.0\% & 5903 & 2802 & +64.3\% & 44.4 & 115.4 \\
 M3 (ZoomDoc-Verbal) & 43.8\% & [23.1\%, 66.8\%] & 31.2\% & 6631 & 2839 & +59.9\% & 50.7 & 127.2 \\
 \midrule
-\textbf{M5 (FoveaDoc, Ours)} & \textbf{81.2\%} & [57.0\%, 93.4\%] & 100.0\% & 8874 & 2756 & +46.3\% & 64.6 & 160.5 \\
+\textbf{M5 (FoveaDoc, Ours)} & \textbf{100.0\%} & [80.6\%, 100.0\%] & 100.0\% & 9056 & 2268 & +45.2\% & 70.6 & 103.6 \\
 \bottomrule
 \end{tabular}}
 \end{table}
@@ -29,11 +29,11 @@ M3 (ZoomDoc-Verbal) & 43.8\% & [23.1\%, 66.8\%] & 31.2\% & 6631 & 2839 & +59.9\%
 \toprule
 Variant & Accuracy & 95\% Wilson CI & Zoom Rate & Residual Corr. & Prompt Tok & P50 (s) & McNemar $p$ vs. M5 \\
 \midrule
-B2 (Tree-NoZoom) & 37.5\% & [18.5\%, 61.4\%] & 0.0\% & N/A & 5903 & 44.4 & 0.0654 \\
-M3 (Verbal-Gate + Crop) & 43.8\% & [23.1\%, 66.8\%] & 31.2\% & N/A & 6631 & 50.7 & 0.1094 \\
-M5 w/o S-BOED (Fovea + Residual) & 87.5\% & [64.0\%, 96.5\%] & 37.5\% & 3 & 6978 & 41.8 & 1.0000 \\
-M5 Linear-Crop (S-BOED Only) & 93.8\% & [71.7\%, 98.9\%] & 100.0\% & 0 & 8107 & 72.4 & 0.6250 \\
-\textbf{M5 Full FoveaDoc (Ours)} & \textbf{81.2\%} & [57.0\%, 93.4\%] & 100.0\% & 1 & 8874 & 64.6 & --- \\
+B2 (Tree-NoZoom) & 37.5\% & [18.5\%, 61.4\%] & 0.0\% & N/A & 5903 & 44.4 & 0.0020 \\
+M3 (Verbal-Gate + Crop) & 43.8\% & [23.1\%, 66.8\%] & 31.2\% & N/A & 6631 & 50.7 & 0.0039 \\
+M5 w/o S-BOED (Fovea + Residual) & 93.8\% & [71.7\%, 98.9\%] & 50.0\% & 2 & 7186 & 49.5 & 1.0000 \\
+M5 Linear-Crop (S-BOED Only) & 100.0\% & [80.6\%, 100.0\%] & 100.0\% & 0 & 8222 & 59.9 & 1.0000 \\
+\textbf{M5 Full FoveaDoc (Ours)} & \textbf{100.0\%} & [80.6\%, 100.0\%] & 100.0\% & 0 & 9056 & 70.6 & --- \\
 \bottomrule
 \end{tabular}}
 \end{table}

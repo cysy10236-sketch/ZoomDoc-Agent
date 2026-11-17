@@ -9,8 +9,8 @@
   "font_pt": 4.0,
   "query_type": "backtrack_trap",
   "status": "answered",
-  "answer": "ZD-6269-BV",
-  "is_correct": true,
+  "answer": "ID-4299-BV",
+  "is_correct": false,
   "reference_pages": [
     48
   ],
@@ -31,17 +31,17 @@
   "inspect_rounds": 1,
   "zoom_count": 0,
   "is_zoomed": false,
-  "residual_corrections": 1,
-  "cache_hit": true,
-  "render_latency_ms": 13.09,
-  "tree_latency_ms": 8.74,
-  "total_wall_ms": 27425.52,
+  "residual_corrections": 0,
+  "cache_hit": false,
+  "render_latency_ms": 953.67,
+  "tree_latency_ms": 9.54,
+  "total_wall_ms": 33191.31,
   "usage": {
-    "calls": 3,
-    "prompt_tokens": 3917,
-    "completion_tokens": 1083,
+    "calls": 4,
+    "prompt_tokens": 6124,
+    "completion_tokens": 1224,
     "missing_usage_calls": 0,
-    "latency_ms": 27324.89
+    "latency_ms": 32151.89
   },
   "error": null,
   "trace_id": "m4-M5_no_sboed-case_005"

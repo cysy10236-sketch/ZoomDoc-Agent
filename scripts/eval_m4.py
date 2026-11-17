@@ -138,6 +138,7 @@ def run_case_for_group(
                     "force_zoom_on_alnum_code": True,
                     "enable_residual_verification": True,
                     "enable_tree_flattening": True,
+                    "annotate_seeker_grid": True,
                     "enable_content_cache": True,
                 }
             )
@@ -171,6 +172,7 @@ def run_case_for_group(
                     "force_zoom_on_alnum_code": True,
                     "enable_residual_verification": False,
                     "enable_tree_flattening": True,
+                    "annotate_seeker_grid": True,
                     "enable_content_cache": True,
                 }
             )
@@ -204,6 +206,7 @@ def run_case_for_group(
                     "force_zoom_on_alnum_code": False,
                     "enable_residual_verification": True,
                     "enable_tree_flattening": True,
+                    "annotate_seeker_grid": True,
                     "enable_content_cache": True,
                 }
             )
@@ -313,7 +316,12 @@ def run_eval_m4(
     if limit is not None and limit > 0:
         cases = cases[:limit]
 
-    groups = ["B0", "B1", "B2", "M3"] if group_arg == "all" else [group_arg]
+    if group_arg == "all":
+        groups = ["B0", "B1", "B2", "M3"]
+    elif group_arg == "m5_all":
+        groups = ["M5_no_sboed", "M5_crop", "M5"]
+    else:
+        groups = [group_arg]
     out_base = Path(out_dir)
     runs_base = Path(runs_dir)
 
@@ -357,7 +365,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Milestone 4 Benchmark Runner.")
     parser.add_argument(
         "--group",
-        choices=["B0", "B1", "B2", "M3", "M5", "M5_crop", "M5_no_sboed", "all"],
+        choices=["B0", "B1", "B2", "M3", "M5", "M5_crop", "M5_no_sboed", "m5_all", "all"],
         default="all",
         help="Evaluation group to execute",
     )
@@ -383,6 +391,12 @@ if __name__ == "__main__":
         action="store_true",
         default=True,
         help="Skip already processed cases",
+    )
+    parser.add_argument(
+        "--no-resume",
+        action="store_false",
+        dest="resume",
+        help="Force re-execution even if result files exist",
     )
     parser.add_argument(
         "--limit",

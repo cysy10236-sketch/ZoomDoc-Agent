@@ -9,11 +9,10 @@
   "font_pt": 5.0,
   "query_type": "cross_page_table",
   "status": "answered",
-  "answer": "ZD-3160-NK (page 49); DIS-0052-XX (page 52)",
-  "is_correct": false,
+  "answer": "ZD-3160-NK",
+  "is_correct": true,
   "reference_pages": [
-    49,
-    52
+    49
   ],
   "candidate_pages": [
     41,
@@ -39,19 +38,19 @@
   "nav_rounds": 1,
   "seek_rounds": 1,
   "inspect_rounds": 1,
-  "zoom_count": 0,
-  "is_zoomed": false,
+  "zoom_count": 1,
+  "is_zoomed": true,
   "residual_corrections": 0,
   "cache_hit": true,
-  "render_latency_ms": 28.08,
-  "tree_latency_ms": 2.94,
-  "total_wall_ms": 35543.2,
+  "render_latency_ms": 1783.36,
+  "tree_latency_ms": 4.94,
+  "total_wall_ms": 71903.65,
   "usage": {
-    "calls": 3,
-    "prompt_tokens": 6099,
-    "completion_tokens": 1281,
+    "calls": 4,
+    "prompt_tokens": 9666,
+    "completion_tokens": 2133,
     "missing_usage_calls": 0,
-    "latency_ms": 35414.92
+    "latency_ms": 69865.53
   },
   "error": null,
   "trace_id": "m4-M5_no_sboed-case_004"

@@ -9,8 +9,8 @@
   "font_pt": 4.0,
   "query_type": "direct_section",
   "status": "answered",
-  "answer": "ZD-170-BV",
-  "is_correct": false,
+  "answer": "ZD-1763-BV",
+  "is_correct": true,
   "reference_pages": [
     12
   ],
@@ -43,17 +43,17 @@
   "inspect_rounds": 1,
   "zoom_count": 0,
   "is_zoomed": false,
-  "residual_corrections": 0,
-  "cache_hit": true,
-  "render_latency_ms": 28.71,
-  "tree_latency_ms": 4.81,
-  "total_wall_ms": 74070.39,
+  "residual_corrections": 1,
+  "cache_hit": false,
+  "render_latency_ms": 2419.59,
+  "tree_latency_ms": 10.94,
+  "total_wall_ms": 113224.07,
   "usage": {
     "calls": 3,
-    "prompt_tokens": 6655,
-    "completion_tokens": 4060,
+    "prompt_tokens": 6812,
+    "completion_tokens": 5016,
     "missing_usage_calls": 0,
-    "latency_ms": 73954.99
+    "latency_ms": 110703.51
   },
   "error": null,
   "trace_id": "m4-M5_no_sboed-case_007"

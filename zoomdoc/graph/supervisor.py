@@ -416,7 +416,11 @@ def seeker_node(
         namespace="main",
     )
 
-    new_candidates = [p for p in state.candidate_pages if p not in selected_pages]
+    batch_limit = max(1, settings.max_inspector_images)
+    active_selected = selected_pages[:batch_limit]
+    overflow_selected = selected_pages[batch_limit:]
+    remaining_unselected = [p for p in state.candidate_pages if p not in selected_pages]
+    new_candidates = overflow_selected + remaining_unselected
     step_rec = StepRecord(
         step=state.step + 1,
         node="seeker",
@@ -429,7 +433,7 @@ def seeker_node(
     return {
         "pages": updated_pages,
         "candidate_pages": new_candidates,
-        "selected_pages": selected_pages,
+        "selected_pages": active_selected,
         "all_selected_pages": selected_pages,
         "seek_rounds": state.seek_rounds + 1,
         "feedback": None,
@@ -818,6 +822,7 @@ def run_m5(
         "force_zoom_on_alnum_code": True,
         "enable_residual_verification": True,
         "enable_tree_flattening": True,
+        "annotate_seeker_grid": True,
         "enable_content_cache": True,
     }
     updates: dict[str, Any] = {k: v for k, v in m5_defaults.items() if k not in explicit_fields}

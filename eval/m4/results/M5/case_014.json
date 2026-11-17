@@ -9,10 +9,10 @@
   "font_pt": 5.0,
   "query_type": "cross_page_table",
   "status": "answered",
-  "answer": "DIS-0042-XX",
-  "is_correct": false,
+  "answer": "ZD-5657-RT",
+  "is_correct": true,
   "reference_pages": [
-    42
+    39
   ],
   "candidate_pages": [
     35,
@@ -27,7 +27,7 @@
     44
   ],
   "selected_pages": [
-    38,
+    39,
     42
   ],
   "nav_rounds": 1,
@@ -37,15 +37,15 @@
   "is_zoomed": true,
   "residual_corrections": 0,
   "cache_hit": true,
-  "render_latency_ms": 1684.45,
-  "tree_latency_ms": 6.16,
-  "total_wall_ms": 55770.99,
+  "render_latency_ms": 1171.5,
+  "tree_latency_ms": 3.91,
+  "total_wall_ms": 93738.49,
   "usage": {
     "calls": 4,
-    "prompt_tokens": 8659,
-    "completion_tokens": 1395,
+    "prompt_tokens": 8923,
+    "completion_tokens": 4059,
     "missing_usage_calls": 0,
-    "latency_ms": 53635.84
+    "latency_ms": 92260.22
   },
   "error": null,
   "trace_id": "m4-M5-case_014"

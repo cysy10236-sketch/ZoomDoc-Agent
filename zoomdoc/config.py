@@ -70,6 +70,7 @@ class Settings(BaseSettings):
 
     enable_tree_flattening: bool = False
     tree_flatten_max_nodes: int = Field(40, ge=1)
+    annotate_seeker_grid: bool = False
 
     enable_content_cache: bool = False
     cache_dir: str = ".cache/zoomdoc"

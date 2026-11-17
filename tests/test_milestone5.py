@@ -737,3 +737,266 @@ def test_m5_fovea_crop_on_crop_nonlinear_inversion(tmp_path: Path) -> None:
     assert child_crop.warp_meta is not None
     assert compute_fovea_warp_meta(src_size=(src_w, src_h), pixel_box=pixel_box, out_size=(1024, 1024)) == meta
 
+
+def test_m5_r1_build_view_items_preserves_active_zoom_crops_on_page_overflow() -> None:
+    """R1: 当选中页数 >= max_inspector_images 时，build_view_items 必须保留最新放大图及其父页。"""
+    from zoomdoc.agents.inspector import Inspector
+    from zoomdoc.schemas import CropAsset, PageAsset
+
+    pages = [
+        PageAsset(
+            page=p,
+            source_path=f"p{p}.png",
+            view_path=f"p{p}.png",
+            thumb_path=f"p{p}.png",
+            source_size=(1000, 1000),
+            view_size=(1000, 1000),
+            thumb_size=(400, 400),
+        )
+        for p in range(68, 80)  # 12 pages
+    ]
+    crop_p70 = CropAsset(
+        crop_id="r1c0",
+        page=70,
+        page_box=NormBBox(x1=0.5, y1=0.7, x2=0.8, y2=0.9),
+        requested_box=NormBBox(x1=0.5, y1=0.7, x2=0.8, y2=0.9),
+        path="r1c0.png",
+        size=(1024, 1024),
+        target="table cell",
+        pixel_box=(500, 700, 800, 900),
+    )
+
+    view = Inspector.build_view_items(pages, [crop_p70], max_inspector_images=6)
+    assert len(view.items) == 6
+    assert ("crop", "r1c0") in view.items
+    assert ("page", 70) in view.items
+
+    # 当单页裁剪数超过 max_limit - 1 时，淘汰最早裁剪图并保留至少 1 张全页与最新裁剪图
+    many_crops = [
+        CropAsset(
+            crop_id=f"c{i}",
+            page=68,
+            page_box=NormBBox(x1=0.1, y1=0.1, x2=0.3, y2=0.3),
+            requested_box=NormBBox(x1=0.1, y1=0.1, x2=0.3, y2=0.3),
+            path=f"c{i}.png",
+            size=(512, 512),
+            target=f"t{i}",
+            pixel_box=(100, 100, 300, 300),
+        )
+        for i in range(6)
+    ]
+    view_many = Inspector.build_view_items([pages[0]], many_crops, max_inspector_images=6)
+    assert len(view_many.items) == 6
+    assert view_many.items[0] == ("page", 68)
+    assert ("crop", "c0") not in view_many.items
+    assert view_many.items[-1] == ("crop", "c5")
+
+
+def test_m5_r2_seeker_overflow_pages_queued_in_candidate_pages(tmp_path: Path) -> None:
+    """R2: Seeker 选页超过 max_inspector_images 时，溢出页保留在 candidate_pages 头部供后续 seek 巡检。"""
+    from zoomdoc.graph.supervisor import run_m2
+
+    pdf_path = tmp_path / "overflow_10p.pdf"
+    doc = fitz.open()
+    for p_idx in range(10):
+        page = doc.new_page(width=595.3, height=841.9)
+        page.insert_text(fitz.Point(50, 60), f"Page {p_idx + 1}", fontsize=14)
+        if p_idx + 1 == 8:
+            page.insert_text(fitz.Point(380, 700), "ZD-8080-RT", fontsize=5)
+    doc.save(str(pdf_path))
+    doc.close()
+
+    scripted = [
+        # Round 1 Seeker: selects 8 pages [1..8] (indices 0..7); active batch is [1..6], overflow [7, 8] stays in candidates
+        json.dumps({"reason": "broad selection", "summary": "many pages", "choice": [0, 1, 2, 3, 4, 5, 6, 7]}),
+        # Round 1 Inspector on [1..6]: target table missing -> seek
+        json.dumps({"action": "seek", "reason": "not in pages 1-6", "information": "check remaining pages", "choice": []}),
+        # Round 2 Seeker on remaining [7, 8, 9, 10]: page 8 is index 1
+        json.dumps({"reason": "page 8 has table", "summary": "found on index 1", "choice": [1]}),
+        # Round 2 Inspector on [8]: answers gold code
+        json.dumps({"action": "answer", "reason": "found on page 8", "answer": "ZD-8080-RT", "confidence": 0.95, "reference": [0]}),
+    ]
+    vlm = FakeVLM(scripted)
+    settings = Settings(
+        runs_dir=str(tmp_path),
+        max_inspector_images=6,
+        max_seek_rounds=2,
+        max_inspect_rounds=2,
+    )
+    res, state = run_m2(
+        question="What is the code on page 8?",
+        pdf_path=str(pdf_path),
+        vlm=vlm,
+        settings=settings,
+        trace_id="trace_r2_overflow",
+    )
+    assert res.status == "answered"
+    assert res.answer == "ZD-8080-RT"
+    assert res.reference_pages == [8]
+    assert 8 in state.all_selected_pages
+
+
+def test_m5_r3_logprobs_scoped_strictly_to_inspector(tmp_path: Path) -> None:
+    """R3: OpenAICompatVLM 仅在 agent == 'inspector' 时请求 logprobs，杜绝上游节点扰动。"""
+    from zoomdoc.llm.vlm_client import OpenAICompatVLM
+
+    class RecordingOpenAIVLM(OpenAICompatVLM):
+        def __init__(self, settings: Settings, scripted: list[str]) -> None:
+            self.settings = settings
+            self.scripted = list(scripted)
+            self.idx = 0
+            self.recorded_request_logprobs: list[bool | None] = []
+
+        def generate(
+            self,
+            parts: list[Part],
+            *,
+            extra_messages: list[dict] | None = None,
+            request_logprobs: bool | None = None,
+        ) -> VLMResponse:
+            self.recorded_request_logprobs.append(request_logprobs)
+            txt = self.scripted[self.idx]
+            self.idx += 1
+            return VLMResponse(
+                text=txt,
+                usage=VLMUsage(
+                    prompt_tokens=80,
+                    completion_tokens=20,
+                    latency_ms=5.0,
+                    model="mock-openai-vlm",
+                    max_token_entropy=0.9 if request_logprobs else None,
+                ),
+            )
+
+    pdf_path = tmp_path / "logprob_scope_30p.pdf"
+    create_synthetic_long_pdf(
+        out_path=str(pdf_path),
+        total_pages=30,
+        gold_page=15,
+        gold_code="ZD-1515-LP",
+    )
+    tree = build_document_tree(str(pdf_path), max_leaf_pages=20)
+    leaf = next(l for l in get_leaf_nodes(tree) if l.start_page <= 15 <= l.end_page)
+    p15_idx = 15 - leaf.start_page
+
+    scripted = [
+        json.dumps({"action": "select", "reason": "leaf", "node_ids": [leaf.node_id]}),
+        json.dumps({"reason": "thumb", "summary": "s", "choice": [p15_idx]}),
+        json.dumps({"action": "answer", "reason": "r1", "answer": "ZD-1515-LP", "confidence": 0.9, "reference": [0]}),
+        json.dumps({"action": "answer", "reason": "r2", "answer": "ZD-1515-LP", "confidence": 0.99, "reference": [0, 1]}),
+    ]
+    settings = Settings(runs_dir=str(tmp_path), cache_dir=str(tmp_path / "cache"))
+    rec_vlm = RecordingOpenAIVLM(settings, scripted)
+
+    res, _ = run_m5(
+        question="Find code",
+        pdf_path=str(pdf_path),
+        vlm=rec_vlm,
+        settings=settings,
+        trace_id="trace_r3_lp",
+    )
+    assert res.status == "answered"
+    # Call order: navigator (False), seeker (False), inspector step 1 (True), inspector step 2 (True)
+    assert rec_vlm.recorded_request_logprobs == [False, False, True, True]
+
+
+def test_m5_r4_sboed_neutral_target_and_fovea_crop_label(tmp_path: Path) -> None:
+    """R4: S-BOED 强制聚焦不得将未验证低清盲猜写入 crop target，且凹面镜标签包含共线表头说明。"""
+    from zoomdoc.llm.vlm_client import TextPart
+    from zoomdoc.observability import TraceLogger
+
+    pdf_path = tmp_path / "debiased_sboed.pdf"
+    doc = fitz.open()
+    page = doc.new_page(width=595.3, height=841.9)
+    page.insert_text(fitz.Point(100, 700), "Security ID: ZD-6269-BV   Validation: CONFIRMED")
+    doc.save(str(pdf_path))
+    doc.close()
+
+    settings = Settings(
+        enable_sboed_gate=True,
+        force_zoom_on_alnum_code=True,
+        zoom_mode="fovea",
+        runs_dir=str(tmp_path),
+    )
+    pages = render_pdf_pages(str(pdf_path), [1], str(tmp_path), settings)
+    vlm = FakeVLMWithUsage([
+        (
+            '{"action": "answer", "reason": "blurry draft", "answer": "ZD-6209-BV", "reference": [0], "confidence": 0.95}',
+            VLMUsage(prompt_tokens=100, completion_tokens=30, latency_ms=5.0, model="fake", max_token_entropy=0.5),
+        ),
+        (
+            '{"action": "answer", "reason": "verified on fovea", "answer": "ZD-6269-BV", "reference": [0, 1], "confidence": 0.99}',
+            VLMUsage(prompt_tokens=150, completion_tokens=30, latency_ms=5.0, model="fake", max_token_entropy=0.01),
+        ),
+    ])
+    logger = TraceLogger(str(tmp_path), "trace_r4")
+    report = run_inspector_round(
+        question="What is the exact Security ID?",
+        round_=1,
+        pages=pages,
+        feedback=None,
+        run_dir=str(tmp_path),
+        trace_id="trace_r4",
+        vlm=vlm,
+        settings=settings,
+        logger=logger,
+        pdf_path=str(pdf_path),
+    )
+    assert report.answer == "ZD-6269-BV"
+    step2_texts = [p.text for p in vlm.calls[1] if isinstance(p, TextPart)]
+    combined_step2 = "\n".join(step2_texts)
+    assert "ZD-6209-BV" not in combined_step2
+    assert "Image 1: ZOOMED CROP" in combined_step2
+    assert "collinearly aligned" in combined_step2
+
+
+def test_m5_r5_seeker_grid_index_badges_and_zero_prompt_contamination() -> None:
+    """R5: 缩略图网格右上角索引角标绘制不污染原图与填充格，且更新后的 Prompt 保持 0.0% 数据污染。"""
+    from zoomdoc.eval.metrics import audit_prompt_contamination
+    from zoomdoc.vision.grid import concat_grid
+
+    src_imgs = [Image.new("RGB", (300, 400), color=(240, 240, 240)) for _ in range(3)]
+    grid_plain, _ = concat_grid(src_imgs, arrangement=(2, 2), line_width=20, annotate_indices=False)
+    grid_badged, _ = concat_grid(src_imgs, arrangement=(2, 2), line_width=20, annotate_indices=True)
+
+    # 原图对象未被就地修改
+    assert src_imgs[0].getpixel((290, 10)) == (240, 240, 240)
+    # 左上角像素保持不变，右上角角标区域发生变化，右下空白填充格保持纯白
+    assert grid_badged.getpixel((10, 10)) == (240, 240, 240)
+    assert np.any(np.asarray(grid_badged)[:40, 220:298] != np.asarray(grid_plain)[:40, 220:298])
+    assert grid_badged.getpixel((320 + 280, 420 + 15)) == (255, 255, 255)
+
+    for m_file in ("eval/m4/manifest.jsonl", "eval/m4/manifest_full16.jsonl"):
+        mp = Path(m_file)
+        if mp.is_file():
+            golds = [json.loads(ln)["gold"] for ln in mp.read_text(encoding="utf-8").splitlines() if ln.strip()]
+            audit = audit_prompt_contamination(golds, prompts_path="zoomdoc/prompts.py", n=4)
+            assert audit["exact_match_count"] == 0
+            assert audit["char_ngram_overlap_rate"] == 0.0
+
+
+def test_m5_r6_single_indel_residual_correction_and_tie_safety(tmp_path: Path) -> None:
+    """R6: 支持单字符插入/缺失（Indel）残差纠偏，且在同微框等距歧义候选下保持安全弃权。"""
+    pdf_path = tmp_path / "indel_and_tie.pdf"
+    doc = fitz.open()
+    p1 = doc.new_page(width=595.3, height=841.9)
+    p1.insert_text(fitz.Point(380, 720), "ZD-4722-WP   ZD-1763-BV")
+    p2 = doc.new_page(width=595.3, height=841.9)
+    # 两个与 ZD-5000-AA 等距 (d=1.0) 的候选，必须触发 tie-safety 弃权
+    p2.insert_text(fitz.Point(100, 100), "ZD-5000-AB   ZD-5000-AC")
+    doc.save(str(pdf_path))
+    doc.close()
+
+    corr_ins, ok_ins = verify_and_correct_answer("ZD-4722-WIP", str(pdf_path), [1], [], max_optical_distance=1.5)
+    assert ok_ins is True and corr_ins == "ZD-4722-WP"
+
+    corr_del, ok_del = verify_and_correct_answer("ZD-176-BV", str(pdf_path), [1], [], max_optical_distance=1.5)
+    assert ok_del is True and corr_del == "ZD-1763-BV"
+
+    corr_tie, ok_tie = verify_and_correct_answer("ZD-5000-AA", str(pdf_path), [2], [], max_optical_distance=1.5)
+    assert ok_tie is False and corr_tie == "ZD-5000-AA"
+
+    box_indel = locate_target_zoom_box(str(pdf_path), 1, "Find Security ID", draft_answer="ZD-170-BV")
+    assert box_indel.y1 > 0.60
+
+

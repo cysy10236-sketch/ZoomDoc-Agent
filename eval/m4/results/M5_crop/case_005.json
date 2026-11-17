@@ -9,8 +9,8 @@
   "font_pt": 4.0,
   "query_type": "backtrack_trap",
   "status": "answered",
-  "answer": "ZD-6209-BV",
-  "is_correct": false,
+  "answer": "ZD-6269-BV",
+  "is_correct": true,
   "reference_pages": [
     48
   ],
@@ -32,16 +32,16 @@
   "zoom_count": 1,
   "is_zoomed": true,
   "residual_corrections": 0,
-  "cache_hit": true,
-  "render_latency_ms": 12.29,
-  "tree_latency_ms": 3.3,
-  "total_wall_ms": 36333.43,
+  "cache_hit": false,
+  "render_latency_ms": 978.23,
+  "tree_latency_ms": 11.64,
+  "total_wall_ms": 89200.03,
   "usage": {
     "calls": 4,
-    "prompt_tokens": 6029,
-    "completion_tokens": 1254,
+    "prompt_tokens": 6061,
+    "completion_tokens": 1250,
     "missing_usage_calls": 0,
-    "latency_ms": 36222.98
+    "latency_ms": 88127.33
   },
   "error": null,
   "trace_id": "m4-M5_crop-case_005"
