@@ -1,0 +1,27 @@
+{
+  "case_id": "m6_case_002",
+  "group": "FoveaDoc_v2",
+  "modality": "vector_matrix",
+  "gold": "ZD-9099-GK",
+  "gold_page": 25,
+  "row_metric": "Securitized Tranche B",
+  "col_header": "FY2026",
+  "status": "answered",
+  "answer": "ZD-9099-GK",
+  "is_correct": true,
+  "reference_pages": [
+    25
+  ],
+  "zoom_count": 2,
+  "residual_corrections": 0,
+  "total_wall_ms": 112974.22,
+  "usage": {
+    "calls": 5,
+    "prompt_tokens": 10947,
+    "completion_tokens": 4591,
+    "missing_usage_calls": 0,
+    "latency_ms": 112480.49
+  },
+  "error": null,
+  "trace_id": "m6-FoveaDoc_v2-m6_case_002"
+}

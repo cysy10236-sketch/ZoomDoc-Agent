@@ -53,12 +53,14 @@ class Settings(BaseSettings):
 
     runs_dir: str = "runs"
 
-    # Milestone 5 (FoveaDoc & Cache) parameters
+    # Milestone 5 & 6 (FoveaDoc & Cache) parameters
     zoom_mode: Literal["crop", "fovea"] = "crop"
     fovea_header_ratio: float = Field(0.12, ge=0.0, le=0.35)
-    fovea_stub_ratio: float = Field(0.15, ge=0.0, le=0.35)
+    fovea_stub_ratio: float = Field(0.15, ge=0.0, le=0.40)
     fovea_focus_share: float = Field(0.65, ge=0.40, le=0.85)
-    fovea_anchor_share: float = Field(0.15, ge=0.0, le=0.25)
+    fovea_anchor_share: float = Field(0.15, ge=0.0, le=0.30)
+    fovea_auto_anchors: bool = False
+    fovea_adaptive_aspect: bool = False
 
     enable_logprobs_entropy: bool = False
     enable_sboed_gate: bool = False

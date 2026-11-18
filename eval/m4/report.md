@@ -60,7 +60,7 @@
 - **记忆重放风险判定**: **0.0% 泄漏**（所有测试金标均采用独立时间戳种子生成，严格排除调试字符串）。
 
 ### 5. 失败样例归档
-已记录全量未完全匹配样例至 `D:\Yi\Desktop\ZoomDoc-Agent\eval\m4\bad_cases.jsonl`。
+已记录全量未完全匹配样例至 `eval\m4\bad_cases.jsonl`。
 
 ### 6. FoveaDoc 组件级正交消融实验 (Component-Wise Orthogonal Ablation)
 

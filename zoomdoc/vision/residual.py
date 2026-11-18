@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import numpy as np
 import pymupdf as fitz
 
 from zoomdoc.schemas import CitedRegion, NormBBox
@@ -210,17 +211,90 @@ def verify_and_correct_answer(
     return current_answer, corrected
 
 
+def locate_raster_dense_roi(
+    page: fitz.Page,
+    *,
+    skip_top_ratio: float = 0.15,
+) -> NormBBox | None:
+    """Localize dense micro-text / tabular ROI on pure-raster scanned pages via stroke-gradient energy."""
+    pix = page.get_pixmap(matrix=fitz.Matrix(1.2, 1.2), alpha=False)
+    if pix.width < 32 or pix.height < 32:
+        return None
+
+    arr = np.frombuffer(pix.samples, dtype=np.uint8).reshape((pix.height, pix.width, pix.n))
+    gray = arr[:, :, :3].mean(axis=2).astype(np.float32)
+
+    gx = np.abs(np.diff(gray, axis=1, prepend=gray[:, :1]))
+    gy = np.abs(np.diff(gray, axis=0, prepend=gray[:1, :]))
+    edges = (gx + gy) > 30.0
+
+    h, w = edges.shape
+    y_cut = int(round(skip_top_ratio * h))
+    edges[:y_cut, :] = False
+    # Mask narrow outer page borders (2%)
+    mx = max(1, int(round(0.02 * w)))
+    my = max(1, int(round(0.02 * h)))
+    edges[:, :mx] = False
+    edges[:, w - mx :] = False
+    edges[h - my :, :] = False
+
+    gh, gw = 24, 18
+    bh = max(1, h // gh)
+    bw = max(1, w // gw)
+    trimmed = edges[: bh * gh, : bw * gw]
+    grid_energy = trimmed.reshape(gh, bh, gw, bw).mean(axis=(1, 3))
+
+    peak = float(grid_energy.max())
+    if peak < 0.015:
+        return None
+
+    active = np.argwhere(grid_energy >= max(0.012, peak * 0.48))
+    if active.size == 0:
+        return None
+
+    r_min, c_min = active.min(axis=0)
+    r_max, c_max = active.max(axis=0)
+
+    x1 = max(0.0, (c_min * bw) / float(w) - 0.06)
+    y1 = max(0.0, (r_min * bh) / float(h) - 0.05)
+    x2 = min(1.0, ((c_max + 1) * bw) / float(w) + 0.06)
+    y2 = min(1.0, ((r_max + 1) * bh) / float(h) + 0.05)
+
+    if x2 - x1 < 0.08:
+        cx = 0.5 * (x1 + x2)
+        x1, x2 = max(0.0, cx - 0.06), min(1.0, cx + 0.06)
+    if y2 - y1 < 0.08:
+        cy = 0.5 * (y1 + y2)
+        y1, y2 = max(0.0, cy - 0.06), min(1.0, cy + 0.06)
+
+    try:
+        return NormBBox(x1=x1, y1=y1, x2=x2, y2=y2)
+    except ValueError:
+        return None
+
+
+_QUESTION_STOPWORDS: set[str] = {
+    "WHAT", "WHICH", "WHERE", "WHEN", "PAGE", "FIND", "CODE", "VALUE", "EXACT",
+    "TABLE", "SCHEDULE", "MATRIX", "COLUMN", "ROW", "CELL", "UNDER", "SECTION",
+    "CHAPTER", "MODULE", "PART", "THE", "AND", "FOR", "THIS", "FROM", "WITH",
+    "THAT", "HAVE", "BEEN", "SHOW", "LIST", "REPORT", "CONFIRMED", "VERIFIED",
+    "IDENTIFIER", "SECURITY", "METRIC", "METRICS",
+}
+
+
 def locate_target_zoom_box(
     pdf_path: str,
     page_num: int,
     question: str,
     draft_answer: str | None = None,
 ) -> NormBBox:
-    """Locate candidate zoom bounding box on page using tiered optical approximate matching.
+    """Locate candidate zoom bounding box on page using tiered optical & geometric matching.
 
+    Tier 0: Matrix row-stub x column-header orthogonal cross-hair intersection.
     Tier 1: Optical approximate code matching against vector layer words.
     Tier 2: Data table structural anchor words (e.g. 'Security', 'Validation', 'CONFIRMED').
     Tier 3: Question keywords excluding page header banner zone.
+    Tier 4: Pure-raster stroke-gradient morphological ROI locator (for scanned PDFs with 0 text).
     """
     default_box = NormBBox(x1=0.08, y1=0.20, x2=0.92, y2=0.88)
     if not pdf_path or not Path(pdf_path).is_file():
@@ -244,12 +318,79 @@ def locate_target_zoom_box(
     words = page.get_text("words")  # (x0, y0, x1, y1, word, block_no, line_no, word_no)
     hit_rects: list[fitz.Rect] = []
 
+    def _find_crosshair_rect() -> fitz.Rect | None:
+        if not words:
+            return None
+        q_tokens = [
+            tok.upper()
+            for tok in re.findall(r"[A-Za-z0-9][A-Za-z0-9\-_.]{2,}", question)
+            if tok.upper() not in _QUESTION_STOPWORDS
+        ]
+        if not q_tokens:
+            return None
+        col_rects: list[fitz.Rect] = []
+        row_rects: list[fitz.Rect] = []
+        for w in words:
+            wx0, wy0, wx1, wy1, w_raw = w[0], w[1], w[2], w[3], w[4]
+            wc = re.sub(r"^[^\w\-.]+|[^\w\-.]+$", "", w_raw).upper()
+            if len(wc) < 3:
+                continue
+            matched_q = any(wc == qt or (len(qt) >= 5 and qt in wc) for qt in q_tokens)
+            if not matched_q:
+                continue
+            # Column header zone: x >= 26% width, y in [12%, 42%] height
+            if wx0 >= 0.26 * w_pt and 0.12 * h_pt <= wy0 <= 0.42 * h_pt:
+                col_rects.append(fitz.Rect(wx0, wy0, wx1, wy1))
+            # Left row-stub zone: x < 34% width, y >= 20% height
+            elif wx0 < 0.34 * w_pt and wy0 >= 0.20 * h_pt:
+                row_rects.append(fitz.Rect(wx0, wy0, wx1, wy1))
+
+        if not (col_rects and row_rects):
+            return None
+        c_union = col_rects[0]
+        for cr in col_rects[1:]:
+            c_union |= cr
+        row_rects.sort(key=lambda r: r.y0)
+        best_row = row_rects[0]
+        best_hits = 1
+        for r_base in row_rects:
+            cluster = [r_o for r_o in row_rects if abs(r_o.y0 - r_base.y0) <= 8.0]
+            if len(cluster) > best_hits:
+                best_hits = len(cluster)
+                u_cl = cluster[0]
+                for c_item in cluster[1:]:
+                    u_cl |= c_item
+                best_row = u_cl
+        cross_rect = fitz.Rect(
+            max(0.0, c_union.x0 - 18.0),
+            max(0.0, best_row.y0 - 10.0),
+            min(w_pt, c_union.x1 + 28.0),
+            min(h_pt, best_row.y1 + 10.0),
+        )
+        if cross_rect.y0 >= 0.18 * h_pt and cross_rect.x1 > cross_rect.x0:
+            return cross_rect
+        return None
+
+    # Count structured hyphenated codes on page to detect dense multi-cell matrix tables
+    code_like_re = re.compile(r"^[A-Za-z0-9]{2,}(?:-[A-Za-z0-9]+)+$")
+    page_code_count = sum(
+        1
+        for w in words
+        if code_like_re.match(re.sub(r"^[^\w\-.]+|[^\w\-.]+$", "", w[4]))
+    )
+
+    # --- Tier 0: On dense matrix tables (>= 4 code cells), prioritize Row x Column Cross-Hair ---
+    if page_code_count >= 4:
+        cross = _find_crosshair_rect()
+        if cross is not None:
+            hit_rects.append(cross)
+
     # --- Tier 1: Optical approximate code matching ---
     draft_codes: list[str] = []
     if draft_answer:
         draft_codes = re.findall(r"[A-Za-z0-9]{2,}(?:-[A-Za-z0-9]+)+", draft_answer)
 
-    if draft_codes and words:
+    if not hit_rects and draft_codes and words:
         for code in draft_codes:
             code_clean = code.strip().upper()
             code_hyphen_pos = [i for i, ch in enumerate(code_clean) if ch == "-"]
@@ -285,6 +426,12 @@ def locate_target_zoom_box(
             if hit_rects:
                 break
 
+    # --- Tier 1.5: Fallback Row x Column Cross-Hair when Tier 1 did not match ---
+    if not hit_rects and page_code_count < 4:
+        cross = _find_crosshair_rect()
+        if cross is not None:
+            hit_rects.append(cross)
+
     # --- Tier 2: Table structure / data cell anchors ---
     if not hit_rects and words:
         table_anchors = {"SECURITY", "VALIDATION", "CONFIRMED", "BATCH", "AUDIT", "OBSERVATION", "METRICS"}
@@ -315,6 +462,12 @@ def locate_target_zoom_box(
                 break
             elif rects and not hit_rects:
                 hit_rects.extend(rects)
+
+    # --- Tier 4: Pure-raster morphological stroke-gradient ROI fallback ---
+    if not hit_rects and not words:
+        raster_box = locate_raster_dense_roi(page)
+        doc.close()
+        return raster_box if raster_box is not None else default_box
 
     doc.close()
 

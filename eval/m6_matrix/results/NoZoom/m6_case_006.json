@@ -1,0 +1,27 @@
+{
+  "case_id": "m6_case_006",
+  "group": "NoZoom",
+  "modality": "vector_matrix",
+  "gold": "ZD-1201-ST",
+  "gold_page": 45,
+  "row_metric": "Pension Liability Gap",
+  "col_header": "FY2026",
+  "status": "answered",
+  "answer": "23-1201-57",
+  "is_correct": false,
+  "reference_pages": [
+    45
+  ],
+  "zoom_count": 0,
+  "residual_corrections": 0,
+  "total_wall_ms": 18406.57,
+  "usage": {
+    "calls": 3,
+    "prompt_tokens": 4837,
+    "completion_tokens": 966,
+    "missing_usage_calls": 0,
+    "latency_ms": 18313.0
+  },
+  "error": null,
+  "trace_id": "m6-NoZoom-m6_case_006"
+}

@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import datetime
 import json
+import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 from zoomdoc.errors import ZoomDocError
+
+EventCallback = Callable[[dict[str, Any]], None]
 
 
 class Span:
@@ -34,15 +37,39 @@ class TraceLogger:
     Writes events to {runs_dir}/{trace_id}/trace.jsonl.
     """
 
-    def __init__(self, runs_dir: str, trace_id: str) -> None:
+    def __init__(
+        self,
+        runs_dir: str,
+        trace_id: str,
+        on_event: EventCallback | None = None,
+        *,
+        reset: bool = False,
+    ) -> None:
         self.runs_dir = Path(runs_dir)
         self.trace_id = trace_id
         self.trace_dir = self.runs_dir / trace_id
         self.trace_dir.mkdir(parents=True, exist_ok=True)
         self.log_file = self.trace_dir / "trace.jsonl"
+        if reset and self.log_file.is_file():
+            self.log_file.unlink(missing_ok=True)
+        self.on_event = on_event
+        self._lock = threading.Lock()
 
     def span(self, node: str) -> Span:
         return Span(self, node)
+
+    def stage(self, stage: str, payload: dict[str, Any]) -> None:
+        """Emit live stage telemetry to in-memory subscriber without altering trace.jsonl."""
+        if self.on_event is None:
+            return
+        evt = {
+            "event_type": "stage",
+            "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "trace_id": self.trace_id,
+            "stage": stage,
+            "payload": payload,
+        }
+        self.on_event(evt)
 
     def event(
         self,
@@ -82,5 +109,9 @@ class TraceLogger:
         if "data:image" in record_str:
             raise ZoomDocError("base64 image leaked into trace")
 
-        with open(self.log_file, "a", encoding="utf-8") as f:
-            f.write(record_str + "\n")
+        with self._lock:
+            with open(self.log_file, "a", encoding="utf-8") as f:
+                f.write(record_str + "\n")
+
+            if self.on_event is not None:
+                self.on_event({"event_type": "trace", **record})

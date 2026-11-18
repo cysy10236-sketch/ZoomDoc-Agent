@@ -4,19 +4,22 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "zoomdoc-agent"
-version = "0.1.0"
-description = "Multi-modal document reasoning agent with coarse-to-fine visual routing and tree indexing"
+version = "0.2.0"
+description = "FoveaDoc / ZoomDoc-Agent: Multi-modal document reasoning agent with PageIndex tree routing, S-BOED entropy gating, anisotropic topological foveation, and cross-modal residual verification"
 readme = "ARCHITECTURE_AND_PLAN.md"
 requires-python = ">=3.11"
 dependencies = [
+    "fastapi",
     "langgraph",
     "numpy",
     "pydantic",
     "pydantic-settings",
     "pymupdf",
+    "python-multipart",
     "pillow",
     "openai",
     "python-dotenv",
+    "uvicorn",
     "pytest",
 ]
 

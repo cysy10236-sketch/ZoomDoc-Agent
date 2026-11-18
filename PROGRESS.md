@@ -567,3 +567,25 @@
 
 
 
+
+---
+
+# Milestone 6 施工进度清单（FoveaDoc v2.0 算法升级、M6 矩阵/纯扫描基准与全栈可视化工作台）
+
+- [x] Step 1: `[ALG-1]` 多锚定带各向异性拓扑凹面镜 v2.0（`zoomdoc/vision/fovea.py`, `zoomdoc/config.py`）
+  - [x] 实现 `detect_table_anchor_bands`：自动检测页中表格列头横线带 `[ty1, ty2]` 与左侧行名竖向分隔线 `stub_end_x`（扩展范围至 `0.33W`）
+  - [x] 升级 `build_1d_fovea_map`：支持 `secondary_band` 多节点严格单调双射与宽跨度非反向压缩不变量（Focus Non-Compression Invariant），往返逆映射误差保持 $\le 2.5 \times 10^{-4}$
+  - [x] 实现 `compute_adaptive_fovea_size` 与 `.meta.json` 变形节点持久化
+- [x] Step 2: `[ALG-2]` 矩阵十字准星几何定位与零文本纯扫描页兜底机制（`zoomdoc/vision/residual.py`, `zoomdoc/graph/inspector_subgraph.py`）
+  - [x] 实现 Tier-0 行名 $\times$ 列头十字准星定位分支（密集矩阵页 `page_code_count >= 4` 激活）
+  - [x] 实现 `locate_raster_dense_roi`（纯位图扫描页笔画梯度能量投影检测）与两阶段 Hybrid Symbolic–Visual S-BOED 放大回退
+- [x] Step 3: `[AGENT-STREAM]` 结构化实时遥测事件总线与 FastAPI + SSE 后端服务（`zoomdoc/observability.py`, `zoomdoc/graph/supervisor.py`, `zoomdoc/server/app.py`, `scripts/serve.py`）
+  - [x] `TraceLogger`、`run_m3`、`run_m5` 支持零侵入 `on_event` 实时推送，严格保持磁盘 `trace.jsonl` 字段不变与零 Base64 泄漏
+  - [x] 构建 FastAPI 生产服务端点：`/api/health`、`/api/documents`、`/api/documents/upload`、`/api/documents/{id}/tree`、`/api/vision/fovea-preview`、`/api/run/stream`（SSE）、`/api/runs/{trace_id}`（含路径穿越拦截 `403` 与物理隔离审计）、`/api/benchmarks`
+- [x] Step 4: `[ALG-3]` M6 18x5 多列密集矩阵与零矢量纯扫描位图页基准实测（`scripts/make_eval_m6_matrix.py`, `scripts/eval_m6_matrix.py`, `eval/m6_matrix/`）
+  - [x] 构建 50 页长文档 `manifest_m6.jsonl`（$N=12$，含 6 例矢量矩阵页 + 6 例 `words == []` 纯扫描位图页，字号 `3.8pt`）
+  - [x] 完成 `NoZoom`、`LinearCrop`、`FoveaDoc_v2` 三组共 36 次真实 VLM（`qwen3.8-flash`, `temperature=0`, `seed=42`）运行（`errors=0`）：`NoZoom = 0.0% (0/12)`，`LinearCrop = 91.7% (11/12)`，`FoveaDoc_v2 = 83.3% (10/12)`（纯扫描位图子集 `83.3% (5/6)`，McNemar vs `NoZoom` $p = 0.0020$，并在 `m6_case_007` 验证单行偏移同图自纠偏）
+- [x] Step 5: `[FRONTEND]` React 19 + TypeScript + Vite 全栈可视化观测台（`frontend/` $\to$ `zoomdoc/server/static/`）
+  - [x] 实现 4 大视图：`Agent Studio`（真实轨迹动态回放 + SSE 实时流式推理 + LangGraph 子图拓扑 + PageIndex 树 + S-BOED 熵表 + 证据检视）、`Fovea Lens Lab`（鼠标拖拽 ROI 实时对比线性裁剪 vs 双锚定凹面镜 + 1D 单调映射曲线）、`Benchmark Observatory`（帕累托前沿 + M6 模态柱状图 + 有效性威胁）、`Trace & Isolation Audit`（Span 瀑布流 + `supervisor_state.json` 零泄漏核验）
+  - [x] 完成真实浏览器多模态交互与视觉回归审计（`1440x900`，4 视图全部通过，`0` 控制台异常，`0` 网络错误）
+- [x] Step 6: `[DOCS & CLOSURE]` 根目录 `README.md`、架构文档同步与全量 75 项确定性回归测试闭环

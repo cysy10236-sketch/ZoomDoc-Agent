@@ -1,0 +1,27 @@
+{
+  "case_id": "m6_case_002",
+  "group": "LinearCrop",
+  "modality": "vector_matrix",
+  "gold": "ZD-9099-GK",
+  "gold_page": 25,
+  "row_metric": "Securitized Tranche B",
+  "col_header": "FY2026",
+  "status": "answered",
+  "answer": "ZD-9099-GK",
+  "is_correct": true,
+  "reference_pages": [
+    25
+  ],
+  "zoom_count": 1,
+  "residual_corrections": 0,
+  "total_wall_ms": 51973.39,
+  "usage": {
+    "calls": 4,
+    "prompt_tokens": 6996,
+    "completion_tokens": 3109,
+    "missing_usage_calls": 0,
+    "latency_ms": 51828.25
+  },
+  "error": null,
+  "trace_id": "m6-LinearCrop-m6_case_002"
+}

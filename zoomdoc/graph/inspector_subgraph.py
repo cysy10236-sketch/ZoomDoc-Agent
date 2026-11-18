@@ -116,6 +116,33 @@ def inspect_node(
                 question=state.question,
                 draft_answer=output.answer,
             )
+            # Hybrid Symbolic-Visual S-BOED: if page has no tight symbolic/morphological ROI
+            # (e.g. full-page pure-raster scan), ask VLM to emit explicit tight action='zoom' bbox_2d
+            if (norm_box.width > 0.55 or norm_box.height > 0.45) and (state.sub_step + 2) < state.max_sub_steps:
+                v_zoom_out, v_zoom_resp, _ = inspector.run(
+                    question=state.question,
+                    view=state.view,
+                    pages=state.pages,
+                    crops=state.crops,
+                    zoom_left=zoom_left,
+                    usage_sink=sink,
+                    prompt_template=INSPECTOR_PROMPT_M2,
+                    adapter=TypeAdapter(InspectorOutputM2),
+                    namespace=f"inspector_sub/r{state.round}",
+                    feedback=(
+                        "S-BOED gate: do NOT answer at medium resolution yet. "
+                        "Choose action='zoom' with a tight bbox_2d around the specific target cell or line."
+                    ),
+                )
+                new_usage = merge_usage(state.usage, usage_from_sink(sink))
+                if isinstance(v_zoom_out, InspectorZoom):
+                    return {
+                        "last_output": v_zoom_out,
+                        "pending_zoom": v_zoom_out,
+                        "sub_step": state.sub_step + 1,
+                        "usage": new_usage,
+                        "latest_answer_entropy": ans_entropy,
+                    }
             if settings.bbox_format == "yxyx_1000":
                 vlm_bbox = (
                     round(norm_box.y1 * 1000.0, 1),

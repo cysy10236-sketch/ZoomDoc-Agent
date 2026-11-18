@@ -1,0 +1,27 @@
+{
+  "case_id": "m6_case_002",
+  "group": "NoZoom",
+  "modality": "vector_matrix",
+  "gold": "ZD-9099-GK",
+  "gold_page": 25,
+  "row_metric": "Securitized Tranche B",
+  "col_header": "FY2026",
+  "status": "answered",
+  "answer": "20-9099-GK",
+  "is_correct": false,
+  "reference_pages": [
+    25
+  ],
+  "zoom_count": 0,
+  "residual_corrections": 0,
+  "total_wall_ms": 26704.2,
+  "usage": {
+    "calls": 3,
+    "prompt_tokens": 4849,
+    "completion_tokens": 1066,
+    "missing_usage_calls": 0,
+    "latency_ms": 26575.93
+  },
+  "error": null,
+  "trace_id": "m6-NoZoom-m6_case_002"
+}

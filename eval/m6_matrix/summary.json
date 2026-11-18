@@ -1,0 +1,70 @@
+{
+  "groups": {
+    "NoZoom": {
+      "n": 12,
+      "correct": 0,
+      "acc": 0.0,
+      "ci": [
+        0.0,
+        0.2425
+      ],
+      "vector_acc": 0.0,
+      "raster_acc": 0.0,
+      "zoom_rate": 0.0,
+      "residual_corrections": 0,
+      "avg_prompt_tokens": 4841.0,
+      "avg_completion_tokens": 1824.7,
+      "p50_wall_ms": 26265.4,
+      "p95_wall_ms": 60413.5,
+      "errors": 0
+    },
+    "LinearCrop": {
+      "n": 12,
+      "correct": 11,
+      "acc": 0.9167,
+      "ci": [
+        0.6461,
+        0.9851
+      ],
+      "vector_acc": 1.0,
+      "raster_acc": 0.8333,
+      "zoom_rate": 1.0,
+      "residual_corrections": 0,
+      "avg_prompt_tokens": 7148.9,
+      "avg_completion_tokens": 3041.9,
+      "p50_wall_ms": 48884.7,
+      "p95_wall_ms": 116859.0,
+      "errors": 0
+    },
+    "FoveaDoc_v2": {
+      "n": 12,
+      "correct": 10,
+      "acc": 0.8333,
+      "ci": [
+        0.552,
+        0.953
+      ],
+      "vector_acc": 0.8333,
+      "raster_acc": 0.8333,
+      "zoom_rate": 1.0,
+      "residual_corrections": 0,
+      "avg_prompt_tokens": 8087.3,
+      "avg_completion_tokens": 3134.4,
+      "p50_wall_ms": 62539.1,
+      "p95_wall_ms": 115096.1,
+      "errors": 0
+    }
+  },
+  "pairwise": {
+    "FoveaDoc_v2_vs_LinearCrop": {
+      "wins": 1,
+      "losses": 2,
+      "mcnemar_p": 1.0
+    },
+    "FoveaDoc_v2_vs_NoZoom": {
+      "wins": 10,
+      "losses": 0,
+      "mcnemar_p": 0.002
+    }
+  }
+}

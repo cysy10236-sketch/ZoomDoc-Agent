@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import functools
+import os
+import shutil
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -26,7 +29,7 @@ from zoomdoc.graph.states import (
 )
 from zoomdoc.index.tree import build_document_tree
 from zoomdoc.llm.vlm_client import OpenAICompatVLM, TextPart, VLMClient
-from zoomdoc.observability import TraceLogger
+from zoomdoc.observability import EventCallback, TraceLogger
 from zoomdoc.prompts import SYNTHESIZER_TEXT_PROMPT, render_evidence_block
 from zoomdoc.schemas import (
     CitedRegion,
@@ -198,9 +201,15 @@ def route_from_supervisor(state: SupervisorState) -> str:
     return state.next
 
 
-def ingest_node(state: SupervisorState, settings: Settings) -> dict[str, Any]:
+def ingest_node(
+    state: SupervisorState,
+    settings: Settings,
+    logger: TraceLogger | None = None,
+) -> dict[str, Any]:
     """Ingest PDF: get total page count, and either render (<= 20 p) or defer rendering (long doc)."""
     total_pages = get_pdf_page_count(state.pdf_path)
+    if logger is not None:
+        logger.stage("ingest", {"total_pages": total_pages, "pdf_path": Path(state.pdf_path).name})
 
     if total_pages == 0:
         step_rec = StepRecord(
@@ -309,6 +318,15 @@ def tree_builder_node(
         usage=None,
         attempts=1,
     )
+    logger.stage(
+        "tree_builder",
+        {
+            "total_pages": tree.total_pages,
+            "roots_count": len(tree.roots),
+            "tree_latency_ms": tree_ms,
+            "cache_hit": cache_hit,
+        },
+    )
     return {
         "doc_tree": tree,
         "step": state.step + 1,
@@ -350,6 +368,16 @@ def navigator_subgraph_node(
         output=report.model_dump(),
         usage=None,
         attempts=1,
+    )
+    logger.stage(
+        "navigator",
+        {
+            "nav_round": report.nav_round,
+            "status": report.status,
+            "selected_node_ids": report.selected_node_ids,
+            "candidate_pages": report.candidate_pages,
+            "reason": report.reason,
+        },
     )
 
     return {
@@ -429,6 +457,16 @@ def seeker_node(
         usage=resp.usage,
         attempts=attempts,
     )
+    logger.stage(
+        "seeker",
+        {
+            "seek_round": state.seek_rounds + 1,
+            "selected_pages": active_selected,
+            "all_selected_in_round": selected_pages,
+            "summary": output.summary,
+            "grid_step": state.seek_rounds + 1,
+        },
+    )
 
     return {
         "pages": updated_pages,
@@ -481,6 +519,7 @@ def inspector_subgraph_node(
         usage=None,
         attempts=1,
     )
+    logger.stage("inspector", report.model_dump())
 
     return {
         "evidence": [report],
@@ -565,7 +604,11 @@ def synthesizer_text_node(
     }
 
 
-def finalize_node(state: SupervisorState, settings: Settings) -> dict[str, Any]:
+def finalize_node(
+    state: SupervisorState,
+    settings: Settings,
+    logger: TraceLogger | None = None,
+) -> dict[str, Any]:
     """Finalize pipeline: write result.json and supervisor_state.json for audit."""
     residual_corrections = sum(
         1 for e in state.evidence if getattr(e, "residual_corrected", False)
@@ -649,6 +692,8 @@ def finalize_node(state: SupervisorState, settings: Settings) -> dict[str, Any]:
         state_dump = state.model_copy(update={"result": result}).model_dump_json(indent=2)
         f.write(state_dump)
 
+    if logger is not None:
+        logger.stage("finalize", result.model_dump())
     return {"result": result}
 
 
@@ -660,7 +705,7 @@ def build_supervisor_graph(
     """Build and compile the Supervisor Master Graph."""
     g = StateGraph(SupervisorState)
 
-    g.add_node("ingest", functools.partial(ingest_node, settings=settings))
+    g.add_node("ingest", functools.partial(ingest_node, settings=settings, logger=logger))
     g.add_node("tree_builder", functools.partial(tree_builder_node, settings=settings, logger=logger))
     g.add_node("navigator", functools.partial(navigator_subgraph_node, vlm=vlm, settings=settings, logger=logger))
     g.add_node("supervisor", functools.partial(supervisor_node, settings=settings))
@@ -668,7 +713,7 @@ def build_supervisor_graph(
     g.add_node("inspector", functools.partial(inspector_subgraph_node, vlm=vlm, settings=settings, logger=logger))
     g.add_node("critic", functools.partial(critic_node, settings=settings, logger=logger))
     g.add_node("synthesizer", functools.partial(synthesizer_text_node, vlm=vlm, settings=settings, logger=logger))
-    g.add_node("finalize", functools.partial(finalize_node, settings=settings))
+    g.add_node("finalize", functools.partial(finalize_node, settings=settings, logger=logger))
 
     g.add_edge(START, "ingest")
     g.add_edge("ingest", "supervisor")
@@ -736,12 +781,32 @@ def run_m2(
     return (final_state.result, final_state)
 
 
+def _prepare_clean_run_dir(run_dir: Path) -> None:
+    """Idempotently clean stale transient sub-artifacts before starting a deterministic trace_id run."""
+    if run_dir.is_dir():
+        shutil.rmtree(run_dir / "sub", ignore_errors=True)
+        shutil.rmtree(run_dir / "grids", ignore_errors=True)
+        (run_dir / "trace.jsonl").unlink(missing_ok=True)
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+
+def _atomic_persist_json(dest: Path, content: str) -> None:
+    tmp = dest.parent / f"{dest.name}.tmp.{time.time_ns()}.{os.getpid()}.{threading.get_ident()}"
+    try:
+        tmp.write_text(content, encoding="utf-8")
+        tmp.replace(dest)
+    except OSError:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
 def run_m3(
     question: str,
     pdf_path: str,
     vlm: VLMClient | None = None,
     settings: Settings | None = None,
     trace_id: str | None = None,
+    on_event: EventCallback | None = None,
 ) -> tuple[FinalResultM3, SupervisorState]:
     """Main execution entry point for ZoomDoc Milestone 3 pipeline."""
     t_start = time.perf_counter()
@@ -754,9 +819,9 @@ def run_m3(
     )
     t_id = trace_id or uuid.uuid4().hex[:12]
     run_dir = Path(cfg.runs_dir) / t_id
-    run_dir.mkdir(parents=True, exist_ok=True)
+    _prepare_clean_run_dir(run_dir)
 
-    logger = TraceLogger(cfg.runs_dir, t_id)
+    logger = TraceLogger(cfg.runs_dir, t_id, on_event=on_event, reset=True)
     client = vlm or OpenAICompatVLM(cfg)
 
     app = build_supervisor_graph(client, cfg, logger)
@@ -791,14 +856,12 @@ def run_m3(
     res_m3 = res_m3.model_copy(update={"total_wall_ms": wall_ms})
     final_state = final_state.model_copy(update={"result": res_m3})
 
-    # Re-persist updated result.json and supervisor_state.json
-    res_path = Path(final_state.run_dir) / "result.json"
-    with open(res_path, "w", encoding="utf-8") as f:
-        f.write(res_m3.model_dump_json(indent=2))
-
-    sup_state_path = Path(final_state.run_dir) / "supervisor_state.json"
-    with open(sup_state_path, "w", encoding="utf-8") as f:
-        f.write(final_state.model_dump_json(indent=2))
+    # Re-persist updated result.json and supervisor_state.json atomically
+    _atomic_persist_json(Path(final_state.run_dir) / "result.json", res_m3.model_dump_json(indent=2))
+    _atomic_persist_json(
+        Path(final_state.run_dir) / "supervisor_state.json",
+        final_state.model_dump_json(indent=2),
+    )
 
     return (res_m3, final_state)
 
@@ -809,14 +872,16 @@ def run_m5(
     vlm: VLMClient | None = None,
     settings: Settings | None = None,
     trace_id: str | None = None,
+    on_event: EventCallback | None = None,
 ) -> tuple[FinalResultM3, SupervisorState]:
-    """Main execution entry point for ZoomDoc Milestone 5 (FoveaDoc) pipeline."""
+    """Main execution entry point for ZoomDoc Milestone 5/6 (FoveaDoc) pipeline."""
     t_start = time.perf_counter()
     base_cfg = settings or get_settings()
     explicit_fields = settings.model_fields_set if settings is not None else set()
     m5_defaults: dict[str, Any] = {
         "use_tree_index": True,
         "zoom_mode": "fovea",
+        "fovea_auto_anchors": True,
         "enable_logprobs_entropy": True,
         "enable_sboed_gate": True,
         "force_zoom_on_alnum_code": True,
@@ -831,9 +896,9 @@ def run_m5(
     cfg = base_cfg.model_copy(update=updates)
     t_id = trace_id or uuid.uuid4().hex[:12]
     run_dir = Path(cfg.runs_dir) / t_id
-    run_dir.mkdir(parents=True, exist_ok=True)
+    _prepare_clean_run_dir(run_dir)
 
-    logger = TraceLogger(cfg.runs_dir, t_id)
+    logger = TraceLogger(cfg.runs_dir, t_id, on_event=on_event, reset=True)
     client = vlm or OpenAICompatVLM(cfg)
 
     app = build_supervisor_graph(client, cfg, logger)
@@ -876,14 +941,12 @@ def run_m5(
     )
     final_state = final_state.model_copy(update={"result": res_m3})
 
-    # Re-persist updated result.json and supervisor_state.json
-    res_path = Path(final_state.run_dir) / "result.json"
-    with open(res_path, "w", encoding="utf-8") as f:
-        f.write(res_m3.model_dump_json(indent=2))
-
-    sup_state_path = Path(final_state.run_dir) / "supervisor_state.json"
-    with open(sup_state_path, "w", encoding="utf-8") as f:
-        f.write(final_state.model_dump_json(indent=2))
+    # Re-persist updated result.json and supervisor_state.json atomically
+    _atomic_persist_json(Path(final_state.run_dir) / "result.json", res_m3.model_dump_json(indent=2))
+    _atomic_persist_json(
+        Path(final_state.run_dir) / "supervisor_state.json",
+        final_state.model_dump_json(indent=2),
+    )
 
     return (res_m3, final_state)
 

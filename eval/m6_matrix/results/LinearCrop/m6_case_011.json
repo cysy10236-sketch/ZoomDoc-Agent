@@ -1,0 +1,27 @@
+{
+  "case_id": "m6_case_011",
+  "group": "LinearCrop",
+  "modality": "raster_scan_matrix",
+  "gold": "ZD-5898-ZB",
+  "gold_page": 45,
+  "row_metric": "Offshore Custody Pool",
+  "col_header": "FY2025",
+  "status": "answered",
+  "answer": "ZD-5898-ZB",
+  "is_correct": true,
+  "reference_pages": [
+    45
+  ],
+  "zoom_count": 1,
+  "residual_corrections": 0,
+  "total_wall_ms": 73792.6,
+  "usage": {
+    "calls": 4,
+    "prompt_tokens": 6985,
+    "completion_tokens": 2976,
+    "missing_usage_calls": 0,
+    "latency_ms": 72456.64
+  },
+  "error": null,
+  "trace_id": "m6-LinearCrop-m6_case_011"
+}

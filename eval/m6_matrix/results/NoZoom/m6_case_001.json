@@ -1,0 +1,27 @@
+{
+  "case_id": "m6_case_001",
+  "group": "NoZoom",
+  "modality": "vector_matrix",
+  "gold": "ZD-9195-KZ",
+  "gold_page": 25,
+  "row_metric": "Intraday Settlement",
+  "col_header": "FY2024",
+  "status": "answered",
+  "answer": "2D-9184-KZ",
+  "is_correct": false,
+  "reference_pages": [
+    25
+  ],
+  "zoom_count": 0,
+  "residual_corrections": 0,
+  "total_wall_ms": 39274.37,
+  "usage": {
+    "calls": 3,
+    "prompt_tokens": 4843,
+    "completion_tokens": 2434,
+    "missing_usage_calls": 0,
+    "latency_ms": 37867.53
+  },
+  "error": null,
+  "trace_id": "m6-NoZoom-m6_case_001"
+}

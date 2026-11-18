@@ -32,4 +32,4 @@
   - `[0.8, 1.0]` (高置信): 样本数=12, 准确率=`75.0%`
 
 ### 4. 失败样例归档
-已记录全量未完全匹配样例至 `D:\Yi\Desktop\ZoomDoc-Agent\eval\m25\bad_cases.jsonl`。
+已记录全量未完全匹配样例至 `eval\m25\bad_cases.jsonl`。

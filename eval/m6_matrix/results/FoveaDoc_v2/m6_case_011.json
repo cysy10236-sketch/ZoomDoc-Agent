@@ -1,0 +1,27 @@
+{
+  "case_id": "m6_case_011",
+  "group": "FoveaDoc_v2",
+  "modality": "raster_scan_matrix",
+  "gold": "ZD-5898-ZB",
+  "gold_page": 45,
+  "row_metric": "Offshore Custody Pool",
+  "col_header": "FY2025",
+  "status": "answered",
+  "answer": "ZD-5898-ZB",
+  "is_correct": true,
+  "reference_pages": [
+    45
+  ],
+  "zoom_count": 1,
+  "residual_corrections": 0,
+  "total_wall_ms": 117689.4,
+  "usage": {
+    "calls": 4,
+    "prompt_tokens": 7297,
+    "completion_tokens": 3876,
+    "missing_usage_calls": 0,
+    "latency_ms": 117334.06
+  },
+  "error": null,
+  "trace_id": "m6-FoveaDoc_v2-m6_case_011"
+}

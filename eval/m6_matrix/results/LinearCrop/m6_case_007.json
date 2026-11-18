@@ -1,0 +1,27 @@
+{
+  "case_id": "m6_case_007",
+  "group": "LinearCrop",
+  "modality": "raster_scan_matrix",
+  "gold": "ZD-6812-VV",
+  "gold_page": 25,
+  "row_metric": "Intraday Settlement",
+  "col_header": "FY2024",
+  "status": "answered",
+  "answer": "ZD-5208-ZQ",
+  "is_correct": false,
+  "reference_pages": [
+    25
+  ],
+  "zoom_count": 1,
+  "residual_corrections": 0,
+  "total_wall_ms": 106387.81,
+  "usage": {
+    "calls": 4,
+    "prompt_tokens": 7008,
+    "completion_tokens": 2539,
+    "missing_usage_calls": 0,
+    "latency_ms": 105128.29
+  },
+  "error": null,
+  "trace_id": "m6-LinearCrop-m6_case_007"
+}

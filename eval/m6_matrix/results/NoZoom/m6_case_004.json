@@ -1,0 +1,27 @@
+{
+  "case_id": "m6_case_004",
+  "group": "NoZoom",
+  "modality": "vector_matrix",
+  "gold": "ZD-8281-SV",
+  "gold_page": 35,
+  "row_metric": "Operational Loss Cap",
+  "col_header": "FY2024",
+  "status": "answered",
+  "answer": "2D-8281-SV",
+  "is_correct": false,
+  "reference_pages": [
+    35
+  ],
+  "zoom_count": 0,
+  "residual_corrections": 0,
+  "total_wall_ms": 24809.3,
+  "usage": {
+    "calls": 3,
+    "prompt_tokens": 4840,
+    "completion_tokens": 1123,
+    "missing_usage_calls": 0,
+    "latency_ms": 24716.24
+  },
+  "error": null,
+  "trace_id": "m6-NoZoom-m6_case_004"
+}

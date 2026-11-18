@@ -1,0 +1,27 @@
+{
+  "case_id": "m6_case_008",
+  "group": "FoveaDoc_v2",
+  "modality": "raster_scan_matrix",
+  "gold": "ZD-1012-KG",
+  "gold_page": 25,
+  "row_metric": "Securitized Tranche B",
+  "col_header": "FY2026",
+  "status": "answered",
+  "answer": "ZD-1012-KG",
+  "is_correct": true,
+  "reference_pages": [
+    25
+  ],
+  "zoom_count": 1,
+  "residual_corrections": 0,
+  "total_wall_ms": 56498.67,
+  "usage": {
+    "calls": 4,
+    "prompt_tokens": 7404,
+    "completion_tokens": 2860,
+    "missing_usage_calls": 0,
+    "latency_ms": 56196.4
+  },
+  "error": null,
+  "trace_id": "m6-FoveaDoc_v2-m6_case_008"
+}

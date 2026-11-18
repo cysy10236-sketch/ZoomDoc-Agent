@@ -1,0 +1,27 @@
+{
+  "case_id": "m6_case_005",
+  "group": "NoZoom",
+  "modality": "vector_matrix",
+  "gold": "ZD-2092-TZ",
+  "gold_page": 45,
+  "row_metric": "Offshore Custody Pool",
+  "col_header": "FY2025",
+  "status": "answered",
+  "answer": "20-2990-12",
+  "is_correct": false,
+  "reference_pages": [
+    45
+  ],
+  "zoom_count": 0,
+  "residual_corrections": 0,
+  "total_wall_ms": 25826.64,
+  "usage": {
+    "calls": 3,
+    "prompt_tokens": 4840,
+    "completion_tokens": 1198,
+    "missing_usage_calls": 0,
+    "latency_ms": 24620.17
+  },
+  "error": null,
+  "trace_id": "m6-NoZoom-m6_case_005"
+}

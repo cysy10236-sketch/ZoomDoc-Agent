@@ -2847,3 +2847,27 @@ $$\mathcal{C}_{\text{opt}} = \bigl\{\{\text{'0'}, \text{'D'}, \text{'O'}, \text{
 
 
 
+
+---
+
+## 19. Milestone 6：FoveaDoc v2.0 多锚定带凹面镜升级、M6 纯扫描/宽矩阵评测与全栈流式观测台
+
+针对 §18.7 披露的三项开放边界（页中起始表格列头丢失、纯位图扫描页零矢量退化、固定正方形画布开销与全链路交互可观测性），Milestone 6 完成以下工程与算法闭环：
+
+### 19.1 算法与运行时增量规格
+1. **多锚定带可分离拓扑凹面镜（`zoomdoc/vision/fovea.py`）**：
+   - `detect_table_anchor_bands`：利用灰度墨水密度投影自动识别左侧行名竖向分隔线 $x_{\text{stub}} \in [0, 0.33W]$ 与焦点上方的页中表格列头带 $[ty_1, ty_2]$；
+   - `build_1d_fovea_map`：扩展 `secondary_band` 多节点分段线性严格单调映射，并引入**宽跨度非反向压缩不变量** $s_{\text{focus}}^{\text{eff}} = \max(s_{\text{focus}}, \min(0.95, \Delta x_{\text{focus}}/W))$，防止整行宽框输入被固定焦点权重反向压缩；
+   - `compute_adaptive_fovea_size`：按有效语义长宽比动态分配输出画布，保留宽条带水平原生分辨率同时削减垂直空白像素。
+2. **矩阵十字准星定位与纯扫描位图回退（`zoomdoc/vision/residual.py`, `zoomdoc/graph/inspector_subgraph.py`）**：
+   - Tier-0 行名 $\times$ 列头几何交集框选（`page_code_count >= 4` 时激活）；
+   - `locate_raster_dense_roi`：针对 `words == []` 的纯位图扫描页，利用一维梯度能量积分定位高密度表格区，并在 S-BOED 门禁中支持两阶段视觉紧致框重定位。
+3. **非阻塞事件总线与全栈工作台（`zoomdoc/observability.py`, `zoomdoc/server/app.py`, `frontend/`）**：
+   - `TraceLogger` 支持 `on_event` 回调，由 FastAPI `StreamingResponse`（SSE）向前端实时流式推送 `start / stage / trace / complete` 事件；
+   - React 19 + TypeScript 单页应用编译至 `zoomdoc/server/static/`，提供 `Agent Studio`、`Fovea Lens Lab`、`Benchmark Observatory`、`Trace & Isolation Audit` 四个交互模块，经浏览器视觉与交互核验达到零控制台报错与零水平溢出。
+
+### 19.2 M6 宽矩阵与零文本纯扫描位图页实测汇总（`eval/m6_matrix/manifest_m6.jsonl`, $N=12$）
+- **受控条件**：`qwen3.8-flash`，`temperature = 0`，`seed = 42`，50 页长文档内嵌 `18 行 × 5 列` 3.8pt 混淆编码矩阵（6 例矢量页 + 6 例 220 DPI 光栅化零文本页）：
+  - `NoZoom`：`0.0% (0/12)`（矢量 `0/6`，纯扫描 `0/6`），Avg Prompt Tokens `4,841`；
+  - `LinearCrop`：`91.7% (11/12)`（矢量 `6/6`，纯扫描 `5/6`），Avg Prompt Tokens `7,149`；在 `m6_case_007` 因首步定位框下移 1 行且截断左侧行名误答相邻行编码 `ZD-5208-ZQ`；
+  - `FoveaDoc_v2`：`83.3% (10/12)`（矢量 `5/6`，纯扫描 `5/6`，McNemar vs `NoZoom` $p = 0.0020$），Avg Prompt Tokens `8,087`；在 `m6_case_007` 依托同行名与页中表头共线对齐准确输出 `ZD-6812-VV`，两例失误（`m6_case_001` 双字符混淆超出 `d <= 1.5` 残差半径、`m6_case_012` 光栅化尾字母 `QG -> GG` 粘连）已归档至 `eval/m6_matrix/runs/`。

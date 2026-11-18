@@ -1,0 +1,27 @@
+{
+  "case_id": "m6_case_003",
+  "group": "LinearCrop",
+  "modality": "vector_matrix",
+  "gold": "ZD-8175-QB",
+  "gold_page": 35,
+  "row_metric": "Subordinated Capital",
+  "col_header": "FY2025",
+  "status": "answered",
+  "answer": "ZD-8175-QB",
+  "is_correct": true,
+  "reference_pages": [
+    35
+  ],
+  "zoom_count": 2,
+  "residual_corrections": 0,
+  "total_wall_ms": 118413.44,
+  "usage": {
+    "calls": 5,
+    "prompt_tokens": 9781,
+    "completion_tokens": 6449,
+    "missing_usage_calls": 0,
+    "latency_ms": 116901.86
+  },
+  "error": null,
+  "trace_id": "m6-LinearCrop-m6_case_003"
+}

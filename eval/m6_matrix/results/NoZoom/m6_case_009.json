@@ -1,0 +1,27 @@
+{
+  "case_id": "m6_case_009",
+  "group": "NoZoom",
+  "modality": "raster_scan_matrix",
+  "gold": "ZD-6916-KR",
+  "gold_page": 35,
+  "row_metric": "Subordinated Capital",
+  "col_header": "FY2025",
+  "status": "answered",
+  "answer": "20-6816-KR",
+  "is_correct": false,
+  "reference_pages": [
+    35
+  ],
+  "zoom_count": 0,
+  "residual_corrections": 0,
+  "total_wall_ms": 34088.4,
+  "usage": {
+    "calls": 3,
+    "prompt_tokens": 4837,
+    "completion_tokens": 2142,
+    "missing_usage_calls": 0,
+    "latency_ms": 32736.85
+  },
+  "error": null,
+  "trace_id": "m6-NoZoom-m6_case_009"
+}

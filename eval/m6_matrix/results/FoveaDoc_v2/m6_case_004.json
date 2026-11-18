@@ -1,0 +1,27 @@
+{
+  "case_id": "m6_case_004",
+  "group": "FoveaDoc_v2",
+  "modality": "vector_matrix",
+  "gold": "ZD-8281-SV",
+  "gold_page": 35,
+  "row_metric": "Operational Loss Cap",
+  "col_header": "FY2024",
+  "status": "answered",
+  "answer": "ZD-8281-SV",
+  "is_correct": true,
+  "reference_pages": [
+    35
+  ],
+  "zoom_count": 1,
+  "residual_corrections": 0,
+  "total_wall_ms": 36181.48,
+  "usage": {
+    "calls": 4,
+    "prompt_tokens": 7295,
+    "completion_tokens": 1627,
+    "missing_usage_calls": 0,
+    "latency_ms": 35906.22
+  },
+  "error": null,
+  "trace_id": "m6-FoveaDoc_v2-m6_case_004"
+}

@@ -1,0 +1,27 @@
+{
+  "case_id": "m6_case_010",
+  "group": "NoZoom",
+  "modality": "raster_scan_matrix",
+  "gold": "ZD-8025-BV",
+  "gold_page": 35,
+  "row_metric": "Operational Loss Cap",
+  "col_header": "FY2024",
+  "status": "answered",
+  "answer": "23-8025-8V",
+  "is_correct": false,
+  "reference_pages": [
+    35
+  ],
+  "zoom_count": 0,
+  "residual_corrections": 0,
+  "total_wall_ms": 25664.72,
+  "usage": {
+    "calls": 3,
+    "prompt_tokens": 4840,
+    "completion_tokens": 1418,
+    "missing_usage_calls": 0,
+    "latency_ms": 25555.17
+  },
+  "error": null,
+  "trace_id": "m6-NoZoom-m6_case_010"
+}

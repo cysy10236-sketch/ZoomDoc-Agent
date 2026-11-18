@@ -1,0 +1,27 @@
+{
+  "case_id": "m6_case_006",
+  "group": "FoveaDoc_v2",
+  "modality": "vector_matrix",
+  "gold": "ZD-1201-ST",
+  "gold_page": 45,
+  "row_metric": "Pension Liability Gap",
+  "col_header": "FY2026",
+  "status": "answered",
+  "answer": "ZD-1201-ST",
+  "is_correct": true,
+  "reference_pages": [
+    45
+  ],
+  "zoom_count": 1,
+  "residual_corrections": 0,
+  "total_wall_ms": 51883.54,
+  "usage": {
+    "calls": 4,
+    "prompt_tokens": 7551,
+    "completion_tokens": 3079,
+    "missing_usage_calls": 0,
+    "latency_ms": 51516.83
+  },
+  "error": null,
+  "trace_id": "m6-FoveaDoc_v2-m6_case_006"
+}
